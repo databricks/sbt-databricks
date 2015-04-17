@@ -95,18 +95,33 @@ object DatabricksPlugin extends AutoPlugin {
       val onClusters = dbcClusters.value
       val allClusters = dbcListClusters.value.map(c => (c.name, c.id)).toMap
       for (lib <- libraries; cluster <- onClusters) {
-        val attachTo = allClusters.getOrElse(cluster,
-          throw new NoSuchElementException(s"Cluster with name: $cluster not found!"))
-        println(s"Attaching ${lib.name} to cluster '$cluster'")
-        attachToCluster(dbcDBApiURL.value, dbcApiClient.value, lib.id, attachTo)
+        if (cluster == "ALL_CLUSTERS") {
+          allClusters.foreach { case (clusterName, clusterId) =>
+            println(s"Attaching ${lib.name} to cluster '$clusterName'")
+            attachToCluster(dbcDBApiURL.value, dbcApiClient.value, lib.id, clusterId)
+          }
+        } else {
+          val attachTo = allClusters.getOrElse(cluster,
+            throw new NoSuchElementException(s"Cluster with name: $cluster not found!"))
+          println(s"Attaching ${lib.name} to cluster '$cluster'")
+          attachToCluster(dbcDBApiURL.value, dbcApiClient.value, lib.id, attachTo)
+        }
       }
       println(s"Requires restart: $requiresRestart")
       if (dbcRestartOnAttach.value && requiresRestart) {
         onClusters.foreach { cluster =>
-          allClusters.get(cluster).foreach { clusterId =>
-            println(s"Restarting cluster: $cluster")
-            restartCluster(dbcDBApiURL.value, dbcApiClient.value, clusterId)
+          if (cluster == "ALL_CLUSTERS") {
+            allClusters.foreach { case (clusterName, clusterId) =>
+              println(s"Restarting cluster: $cluster")
+              restartCluster(dbcDBApiURL.value, dbcApiClient.value, clusterId)
+            }
+          } else {
+            allClusters.get(cluster).foreach { clusterId =>
+              println(s"Restarting cluster: $cluster")
+              restartCluster(dbcDBApiURL.value, dbcApiClient.value, clusterId)
+            }
           }
+
         }
       }
     }
