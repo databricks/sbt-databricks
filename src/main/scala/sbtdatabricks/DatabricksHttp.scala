@@ -1,29 +1,230 @@
 package sbtdatabricks
 
+import com.fasterxml.jackson.databind.ObjectMapper
+import com.fasterxml.jackson.module.scala.DefaultScalaModule
 import com.fasterxml.jackson.module.scala.experimental.ScalaObjectMapper
-import org.apache.http.client.entity.UrlEncodedFormEntity
-import org.apache.http.client.methods._
-import org.apache.http.client.utils.URLEncodedUtils
-import org.apache.http.entity.StringEntity
-import org.apache.http.entity.mime.{MultipartEntityBuilder, MultipartFormEntity}
-import org.apache.http.entity.mime.content.{FileBody, StringBody}
-import org.apache.http.message.BasicNameValuePair
-import sbt._
-import Keys._
-import sbtdatabricks.DatabricksPlugin.LibraryMap
-
-import scala.collection.JavaConversions._
 
 import org.apache.http.auth.{AuthScope, UsernamePasswordCredentials}
 import org.apache.http.client.HttpClient
+import org.apache.http.client.entity.UrlEncodedFormEntity
+import org.apache.http.client.methods._
+import org.apache.http.client.utils.URLEncodedUtils
 import org.apache.http.conn.ssl.{SSLConnectionSocketFactory, TrustSelfSignedStrategy, SSLContextBuilder}
+import org.apache.http.entity.StringEntity
+import org.apache.http.entity.mime.content.{FileBody, StringBody}
 import org.apache.http.impl.client.{BasicResponseHandler, HttpClients, BasicCredentialsProvider}
+import org.apache.http.message.BasicNameValuePair
+
+import sbt._
+import Keys._
+import scala.collection.JavaConversions._
+
+import sbtdatabricks.DatabricksPlugin.{ClusterName, ClusterMap}
+
+private[sbtdatabricks] class DatabricksHttp(endpoint: String, client: HttpClient) {
+
+  import DBApiEndpoints._
+
+  private val mapper = new ObjectMapper() with ScalaObjectMapper
+  mapper.registerModule(DefaultScalaModule)
+
+  /**
+   * Upload a jar to Databrics Cloud
+   * @param name Name of the library to show on Databricks Cloud
+   * @param file The jar file
+   * @param folder Where the library should be placed in the file browser in Databricks Cloud
+   * @return UploadedLibraryId corresponding to the artifact and its LibraryId in Databricks Cloud
+   */
+  private[sbtdatabricks] def uploadJar(
+      name: String,
+      file: File,
+      folder: String): UploadedLibraryId = {
+    val post = new HttpPost(endpoint + LIBRARY_UPLOAD)
+    val entity = new org.apache.http.entity.mime.MultipartEntity()
+
+    entity.addPart("name", new StringBody(name))
+    entity.addPart("libType", new StringBody("scala"))
+    entity.addPart("folder", new StringBody(folder))
+    entity.addPart("uri", new FileBody(file))
+    post.setEntity(entity)
+    val response = client.execute(post)
+    val handler = new org.apache.http.impl.client.BasicResponseHandler()
+    val stringResponse = handler.handleResponse(response)
+    mapper.readValue[UploadedLibraryId](stringResponse)
+  }
+
+  /**
+   * Deletes the given Library on Databricks Cloud 
+   * @param libraryId the id for the library
+   * @return The response from Databricks Cloud, i.e. the libraryId
+   */
+  private[sbtdatabricks] def deleteJar(libraryId: String): String = {
+    val post = new HttpPost(endpoint + LIBRARY_DELETE)
+    val form = List(new BasicNameValuePair("libraryId", libraryId))
+    post.setEntity(new UrlEncodedFormEntity(form))
+    val response = client.execute(post)
+    val handler = new org.apache.http.impl.client.BasicResponseHandler()
+    handler.handleResponse(response)
+  }
+
+  /**
+   * Fetches the list of Libraries usable with the user's Databricks Cloud account.
+   * @return List of Library metadata, i.e. (name, id, folder)
+   */
+  private[sbtdatabricks] def fetchLibraries: Seq[LibraryListResult] = {
+    val request = new HttpGet(endpoint + LIBRARY_LIST)
+    val response = client.execute(request)
+    val handler = new BasicResponseHandler()
+    val stringResponse = handler.handleResponse(response)
+    mapper.readValue[Seq[LibraryListResult]](stringResponse)
+  }
+
+  /**
+   * Get the status of the Library 
+   * @param libraryId the id of the Library
+   * @return Information on the status of the Library, which clusters it is attached to, 
+   *         files, etc...
+   */
+  private[sbtdatabricks] def getLibraryStatus(libraryId: String): LibraryStatus = {
+    val form =
+      URLEncodedUtils.format(List(new BasicNameValuePair("libraryId", libraryId)), "utf-8")
+    val request = new HttpGet(endpoint + LIBRARY_STATUS + "?" + form)
+    val response = client.execute(request)
+    val handler = new BasicResponseHandler()
+    val stringResponse = handler.handleResponse(response)
+    mapper.readValue[LibraryStatus](stringResponse)
+  }
+
+  /**
+   * Check whether an older version of the library is attached to the given clusters
+   * @param lib the libraries that will be uploaded
+   * @param clusters all clusters accessible by the user
+   * @param onClusters List of clusters to check whether the libraries are attached to
+   * @return Whether an older version of the library is attached to the given clusters
+   */
+  private[sbtdatabricks] def isOldVersionAttached(
+      lib: UploadedLibrary, 
+      clusters: ClusterMap, 
+      onClusters: Seq[ClusterName]): Boolean = {
+    val status = getLibraryStatus(lib.id)
+    val libraryClusterStatusMap = status.statuses.map(s => (s.clusterId, s.status)).toMap
+    var requiresRestart = false
+    foreachCluster(onClusters, clusters) { cluster =>
+        libraryClusterStatusMap.get(cluster.id).foreach { state =>
+          if (state != "Detached") {
+            requiresRestart = true
+          }
+        }
+      }
+    requiresRestart
+  }
+
+  /**
+   * Delete the given libraries
+   * @param libs The libraries to delete
+   * @return true that means that the operation completed
+   */
+  private[sbtdatabricks] def deleteLibraries(libs: Seq[UploadedLibrary]): Boolean = {
+    libs.foreach { lib =>
+      println(s"Deleting older version of ${lib.name}")
+      deleteJar(lib.id)
+    }
+    // We need to have a hack for SBT to handle the operations sequentially. The `true` is to make
+    // sure that the function returned a value and the future operations of `deploy` depend on
+    // this method
+    true
+  }
+
+  /**
+   * Refactored to take a tuple so that we can reuse foreachCluster.
+   * @param library The metadata of the uploaded library
+   * @param cluster The cluster to attach the library to
+   * @return Response from Databricks Cloud
+   */
+  private[sbtdatabricks] def attachToCluster(library: UploadedLibrary, cluster: Cluster): String = {
+    //println(s"Attaching ${ids._1.name} to cluster '${ids._2.name}'")
+    println(s"Attaching ${library.name} to cluster '${cluster.name}'")
+    val post = new HttpPost(endpoint + LIBRARY_ATTACH)
+    //val form = new StringEntity(s"""{"libraryId":"${ids._1.id}","clusterId":"${ids._2.id}"}""")
+    val form = new StringEntity(s"""{"libraryId":"${library.id}","clusterId":"${cluster.id}"}""")
+    form.setContentType("application/json")
+    post.setEntity(form)
+    val response = client.execute(post)
+    val handler = new org.apache.http.impl.client.BasicResponseHandler()
+    handler.handleResponse(response)
+  }
+
+  /**
+   * Fetch the list of clusters the user has access to
+   * @return List of clusters (name, id, status, etc...)
+   */
+  private[sbtdatabricks] def fetchClusters: Seq[Cluster] = {
+    val request = new HttpGet(endpoint + CLUSTER_LIST)
+    val response = client.execute(request)
+    val handler = new BasicResponseHandler()
+    val stringResponse = handler.handleResponse(response)
+    mapper.readValue[Seq[Cluster]](stringResponse)
+  }
+
+  /**
+   * Get detailed information on a cluster
+   * @param clusterId the cluster to get detailed information on
+   * @return cluster's metadata (name, id, status, etc...)
+   */
+  private[sbtdatabricks] def clusterInfo(clusterId: String): Cluster = {
+    val form =
+      URLEncodedUtils.format(List(new BasicNameValuePair("clusterId", clusterId)), "utf-8")
+    val request = new HttpGet(endpoint + CLUSTER_INFO + "?" + form)
+    val response = client.execute(request)
+    val handler = new BasicResponseHandler()
+    val stringResponse = handler.handleResponse(response)
+    mapper.readValue[Cluster](stringResponse)
+  }
+
+  /** Restart a cluster */
+  private[sbtdatabricks] def restartCluster(cluster: Cluster): String = {
+    println(s"Restarting cluster: ${cluster.name}")
+    val post = new HttpPost(endpoint + CLUSTER_RESTART)
+    val form = new StringEntity(s"""{"clusterId":"${cluster.id}"}""")
+    form.setContentType("application/json")
+    post.setEntity(form)
+    val response = client.execute(post)
+    val handler = new org.apache.http.impl.client.BasicResponseHandler()
+    handler.handleResponse(response)
+  }
+
+  /**
+   * Helper method to handle cluster related functions, 
+   * and handle the special 'ALL_CLUSTERS' option.
+   * @param onClusters The clusters to invoke the function on
+   * @param allClusters The list of all clusters, which the user has access to
+   * @param f The function to perform on the cluster
+   */
+  private[sbtdatabricks] def foreachCluster(
+      onClusters: Seq[String], 
+      allClusters: Map[String, Cluster])(f: Cluster => Unit): Unit = {
+    onClusters.foreach { clusterName =>
+      if (clusterName == "ALL_CLUSTERS") {
+        allClusters.foreach { case (id, cluster) =>
+          f(cluster)
+        }
+      } else {
+        val givenCluster = allClusters.get(clusterName)
+        if (givenCluster.isEmpty) {
+          throw new NoSuchElementException(s"Cluster with name: $clusterName not found!")
+        }
+        givenCluster.foreach { cluster =>
+          f(cluster)
+        }
+      }
+    }
+  }
+}
 
 object DatabricksHttp {
   
-  import DBApiEndpoints._
-  
-  def getApiClient(username: String, password: String): HttpClient = {
+  /** Create an SSL client to handle communication. */
+  private[sbtdatabricks] def getApiClient(username: String, password: String): HttpClient = {
 
       val builder = new SSLContextBuilder()
       builder.loadTrustMaterial(null, new TrustSelfSignedStrategy())
@@ -41,128 +242,17 @@ object DatabricksHttp {
       client
   }
 
-  def uploadJar(
-      endpoint: String,
-      client: HttpClient, 
-      name: String,
-      file: File,
-      folder: String): String = {
-    val post = new HttpPost(endpoint + LIBRARY_UPLOAD)
-    val entity = new org.apache.http.entity.mime.MultipartEntity()
-
-    entity.addPart("name", new StringBody(name))
-    entity.addPart("libType", new StringBody("scala"))
-    entity.addPart("folder", new StringBody(folder))
-    entity.addPart("uri", new FileBody(file))
-    post.setEntity(entity)
-    val response = client.execute(post)
-    val handler = new org.apache.http.impl.client.BasicResponseHandler()
-    handler.handleResponse(response)
-  }
-
-  def deleteJar(
-      endpoint: String,
-      client: HttpClient,
-      libraryId: String): String = {
-    val post = new HttpPost(endpoint + LIBRARY_DELETE)
-    val form = List(new BasicNameValuePair("libraryId", libraryId))
-    post.setEntity(new UrlEncodedFormEntity(form))
-    val response = client.execute(post)
-    val handler = new org.apache.http.impl.client.BasicResponseHandler()
-    handler.handleResponse(response)
-  }
-
-  def getAllLibraries(
-      endpoint: SettingKey[String],
-      client: TaskKey[HttpClient],
-      mapper: ScalaObjectMapper): Def.Initialize[Task[Seq[LibraryListResult]]] = Def.task {
-    val request = new HttpGet(endpoint.value + LIBRARY_LIST)
-    val response = client.value.execute(request)
-    val handler = new BasicResponseHandler()
-    val stringResponse = handler.handleResponse(response)
-    mapper.readValue[Seq[LibraryListResult]](stringResponse)
-  }
-  
-  def deleteIfExists(
-      endpoint: SettingKey[String],
-      client: TaskKey[HttpClient],
-      existing: Def.Initialize[Task[LibraryMap]],
-      jars: Def.Initialize[Task[Seq[File]]],
-      inFolder: SettingKey[String]): Def.Initialize[Task[(Boolean, Boolean)]] = Def.task {
-    var requiresRestart = false
-    val existingLibraries = existing.value
-    val path = inFolder.value
-    val allJars = jars.value
-    allJars.foreach { jar =>
-      existingLibraries.get(jar.getName).foreach {
-        _.foreach { lib =>
-          var exists = false
-          exists ||= (lib.folder == path)
-          if (exists) {
-            println(s"Deleting older version of ${jar.getName}")
-            deleteJar(endpoint.value, client.value, lib.id)
-          }
-          requiresRestart ||= exists
-        }
-      }
-    }
-    // We need to make a hack for SBT to handle the operations sequentially. The `true` is to make
-    // sure that the function returned a value and the future operations of `deploy` depend on
-    // this method
-    (true, requiresRestart)
-  }
-  
-  def attachToCluster(
+  private[sbtdatabricks] def apply(
       endpoint: String, 
-      client: HttpClient, 
-      library: String,
-      cluster: String): String = {
-    val post = new HttpPost(endpoint + LIBRARY_ATTACH)
-    val form = new StringEntity(s"""{"libraryId":"$library","clusterId":"$cluster"}""")
-    form.setContentType("application/json")
-    post.setEntity(form)
-    val response = client.execute(post)
-    val handler = new org.apache.http.impl.client.BasicResponseHandler()
-    handler.handleResponse(response)
+      username: String, 
+      password: String): DatabricksHttp = {
+    val cli = DatabricksHttp.getApiClient(username, password)
+    new DatabricksHttp(endpoint, cli)
   }
   
-  def listClustersMethod(
-      endpoint: String,
-      client: HttpClient,
-      mapper: ScalaObjectMapper): Seq[Cluster] = {
-    val request = new HttpGet(endpoint + CLUSTER_LIST)
-    val response = client.execute(request)
-    val handler = new BasicResponseHandler()
-    val stringResponse = handler.handleResponse(response)
-    mapper.readValue[Seq[Cluster]](stringResponse)
-  }
-
-  def clusterInfoMethod(
-      endpoint: String, 
-      client: HttpClient, 
-      cluster: String,
-      mapper: ScalaObjectMapper): Def.Initialize[Task[Cluster]] = Def.task {
-    val form =
-      URLEncodedUtils.format(List(new BasicNameValuePair("clusterId", cluster)), "utf-8")
-    val request = new HttpGet(endpoint + CLUSTER_INFO + form)
-    val response = client.execute(request)
-    val handler = new BasicResponseHandler()
-    val stringResponse = handler.handleResponse(response)
-    mapper.readValue[Cluster](stringResponse)
-  }
-  
-  def restartCluster(endpoint: String, client: HttpClient, cluster: String): String = {
-    val post = new HttpPost(endpoint + CLUSTER_RESTART)
-    val form = new StringEntity(s"""{"clusterId":"$cluster"}""")
-    form.setContentType("application/json")
-    post.setEntity(form)
-    val response = client.execute(post)
-    val handler = new org.apache.http.impl.client.BasicResponseHandler()
-    handler.handleResponse(response)
-  }
 }
 
-object DBApiEndpoints {
+private[sbtdatabricks] object DBApiEndpoints {
 
   final val CLUSTER_LIST = "/clusters/list"
   final val CLUSTER_RESTART = "/clusters/restart"
