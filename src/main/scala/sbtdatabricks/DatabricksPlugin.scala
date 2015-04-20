@@ -9,7 +9,6 @@ object DatabricksPlugin extends AutoPlugin {
   type LibraryName = String
   type ClusterName = String
   type LibraryMap = MutHashMap[LibraryName, MutSet[LibraryListResult]] with MutMultiMap[LibraryName, LibraryListResult]
-  type ClusterMap = Map[ClusterName, Cluster]
   
   object autoImport {
 
@@ -18,7 +17,8 @@ object DatabricksPlugin extends AutoPlugin {
       "true, and if necessary.")
     val dbcDeploy = taskKey[Unit]("Upload your library to Databricks Cloud and attach it to clusters. Performs " +
       "dbcUpload and dbcAttach together.")
-    val dbcClusters = settingKey[Seq[String]]("List of clusters to attach project to.")
+    val dbcClusters = settingKey[Seq[String]]("List of clusters to attach project to. To attach to all clusters, " +
+      "set this as 'ALL_CLUSTERS'.")
     val dbcRestartOnAttach = settingKey[Boolean]("Whether to restart the cluster when a new version of" +
       " your library is attached.")
     val dbcLibraryPath = settingKey[String]("Where in the workspace to add the libraries.")
@@ -70,7 +70,7 @@ object DatabricksPlugin extends AutoPlugin {
       ).filterNot(_.getName startsWith "scala-")
   }
 
-  private val dbcFetchClusters = taskKey[ClusterMap]("Fetch all available clusters.")
+  private val dbcFetchClusters = taskKey[Seq[Cluster]]("Fetch all available clusters.")
   
   private lazy val uploadImpl: Def.Initialize[Task[Seq[UploadedLibrary]]] = Def.taskDyn {
     val client = dbcApiClient.value
@@ -127,13 +127,10 @@ object DatabricksPlugin extends AutoPlugin {
   
   val baseDBCSettings: Seq[Setting[_]] = Seq(
     dbcClusters := Seq.empty[String],
-    dbcRestartOnAttach := false,
+    dbcRestartOnAttach := true,
     dbcLibraryPath := "/",
-    dbcUsername := "admin",
-    dbcPassword := "admin",
-    dbcDBApiURL := "dummy",
     dbcApiClient := DatabricksHttp(dbcDBApiURL.value, dbcUsername.value, dbcPassword.value),
-    dbcFetchClusters := dbcApiClient.value.fetchClusters.map(c => (c.name, c)).toMap,
+    dbcFetchClusters := dbcApiClient.value.fetchClusters,
     dbcRestartClusters := {
       val onClusters = dbcClusters.value
       val allClusters = dbcFetchClusters.value
@@ -143,7 +140,7 @@ object DatabricksPlugin extends AutoPlugin {
     dbcListClusters := {
       val clusters = dbcFetchClusters.value
       clusters.zipWithIndex.foreach { case (cluster, idx) =>
-        println(s"${idx + 1}- ${cluster._2}")
+        println(s"${idx + 1}- $cluster")
       }
     },
     dbcUpload := uploadImpl.value,
@@ -165,12 +162,24 @@ object DatabricksPlugin extends AutoPlugin {
 
 case class UploadedLibraryId(id: String)
 case class UploadedLibrary(name: String, jar: File, id: String)
-case class Cluster(name: String, id: String, status: String, driverIp: String, jdbcPort: String, numWorkers: Int) {
+case class Cluster(
+    name: String,
+    id: String,
+    status: String,
+    driverIp: String,
+    jdbcPort: String,
+    numWorkers: Int) {
   override def toString: String = {
-    s"Name: $name, Status: $status, Number of Workers: $numWorkers."
+    s"Cluster Name: $name, Status: $status, Number of Workers: $numWorkers."
   }
 }
 case class LibraryListResult(id: String, name: String, folder: String)
-case class LibraryStatus(id: String, name: String, folder: String, libType: String, files: List[String],
-                          attachAllClusters: Boolean, statuses: List[LibraryClusterStatus])
+case class LibraryStatus(
+    id: String,
+    name: String,
+    folder: String,
+    libType: String,
+    files: List[String],
+    attachAllClusters: Boolean,
+    statuses: List[LibraryClusterStatus])
 case class LibraryClusterStatus(clusterId: String, status: String)

@@ -20,7 +20,7 @@ import Keys._
 import scala.collection.JavaConversions._
 import scala.util.control.Breaks._
 
-import sbtdatabricks.DatabricksPlugin.{ClusterName, ClusterMap}
+import sbtdatabricks.DatabricksPlugin.ClusterName
 
 private[sbtdatabricks] class DatabricksHttp(endpoint: String, client: HttpClient) {
 
@@ -105,7 +105,7 @@ private[sbtdatabricks] class DatabricksHttp(endpoint: String, client: HttpClient
    */
   private[sbtdatabricks] def isOldVersionAttached(
       lib: UploadedLibrary, 
-      clusters: ClusterMap, 
+      clusters: Seq[Cluster],
       onClusters: Seq[ClusterName]): Boolean = {
     val status = getLibraryStatus(lib.id)
     val libraryClusterStatusMap = status.statuses.map(s => (s.clusterId, s.status)).toMap
@@ -203,17 +203,15 @@ private[sbtdatabricks] class DatabricksHttp(endpoint: String, client: HttpClient
    */
   private[sbtdatabricks] def foreachCluster(
       onClusters: Seq[String], 
-      allClusters: Map[String, Cluster])(f: Cluster => Unit): Unit = {
-    onClusters.foreach { clusterName =>
-      if (clusterName == "ALL_CLUSTERS") {
-        allClusters.foreach { case (id, cluster) =>
-          f(cluster)
-        }
-        // if the method is performed on ALL_CLUSTERS, there is no reason to continue
-        // looping the outer foreach
-        break() 
-      } else {
-        val givenCluster = allClusters.get(clusterName)
+      allClusters: Seq[Cluster])(f: Cluster => Unit): Unit = {
+    val hasAllClusters = onClusters.find(_ == "ALL_CLUSTERS")
+    if (hasAllClusters.isDefined) {
+      allClusters.foreach { cluster =>
+        f(cluster)
+      }
+    } else {
+      onClusters.foreach { clusterName =>
+        val givenCluster = allClusters.find(_.name == clusterName)
         if (givenCluster.isEmpty) {
           throw new NoSuchElementException(s"Cluster with name: $clusterName not found!")
         }
