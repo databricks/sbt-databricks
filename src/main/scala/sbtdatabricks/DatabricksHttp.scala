@@ -18,6 +18,7 @@ import org.apache.http.message.BasicNameValuePair
 import sbt._
 import Keys._
 import scala.collection.JavaConversions._
+import scala.util.control.Breaks._
 
 import sbtdatabricks.DatabricksPlugin.{ClusterName, ClusterMap}
 
@@ -208,6 +209,9 @@ private[sbtdatabricks] class DatabricksHttp(endpoint: String, client: HttpClient
         allClusters.foreach { case (id, cluster) =>
           f(cluster)
         }
+        // if the method is performed on ALL_CLUSTERS, there is no reason to continue
+        // looping the outer foreach
+        break() 
       } else {
         val givenCluster = allClusters.get(clusterName)
         if (givenCluster.isEmpty) {
