@@ -25,7 +25,7 @@ object DatabricksPlugin extends AutoPlugin {
     val dbcListClusters = taskKey[Unit]("List all available clusters and their states.")
     val dbcRestartClusters = taskKey[Unit]("Restart the given clusters.")
 
-    val dbcDBApiURL = settingKey[String]("The URL for the DB API endpoint")
+    val dbcApiUrl = settingKey[String]("The URL for the DB API endpoint")
     val dbcUsername = settingKey[String]("The username for Databricks Cloud")
     val dbcPassword = settingKey[String]("The password for Databricks Cloud")
   }
@@ -129,7 +129,7 @@ object DatabricksPlugin extends AutoPlugin {
     dbcClusters := Seq.empty[String],
     dbcRestartOnAttach := true,
     dbcLibraryPath := "/",
-    dbcApiClient := DatabricksHttp(dbcDBApiURL.value, dbcUsername.value, dbcPassword.value),
+    dbcApiClient := DatabricksHttp(dbcApiUrl.value, dbcUsername.value, dbcPassword.value),
     dbcFetchClusters := dbcApiClient.value.fetchClusters,
     dbcRestartClusters := {
       val onClusters = dbcClusters.value

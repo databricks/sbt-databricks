@@ -38,5 +38,5 @@ Other optional parameters are:
 dbcLibraryPath := // Default is "/"
 
 // Whether to restart the clusters everytime a new version is uploaded to Databricks Cloud
-dbcRestartOnAttach := // Default false
+dbcRestartOnAttach := // Default true
 ```

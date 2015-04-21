@@ -16,9 +16,7 @@ import org.apache.http.impl.client.{BasicResponseHandler, HttpClients, BasicCred
 import org.apache.http.message.BasicNameValuePair
 
 import sbt._
-import Keys._
 import scala.collection.JavaConversions._
-import scala.util.control.Breaks._
 
 import sbtdatabricks.DatabricksPlugin.ClusterName
 
@@ -143,10 +141,8 @@ private[sbtdatabricks] class DatabricksHttp(endpoint: String, client: HttpClient
    * @return Response from Databricks Cloud
    */
   private[sbtdatabricks] def attachToCluster(library: UploadedLibrary, cluster: Cluster): String = {
-    //println(s"Attaching ${ids._1.name} to cluster '${ids._2.name}'")
     println(s"Attaching ${library.name} to cluster '${cluster.name}'")
     val post = new HttpPost(endpoint + LIBRARY_ATTACH)
-    //val form = new StringEntity(s"""{"libraryId":"${ids._1.id}","clusterId":"${ids._2.id}"}""")
     val form = new StringEntity(s"""{"libraryId":"${library.id}","clusterId":"${cluster.id}"}""")
     form.setContentType("application/json")
     post.setEntity(form)
@@ -204,6 +200,7 @@ private[sbtdatabricks] class DatabricksHttp(endpoint: String, client: HttpClient
   private[sbtdatabricks] def foreachCluster(
       onClusters: Seq[String], 
       allClusters: Seq[Cluster])(f: Cluster => Unit): Unit = {
+    assert(onClusters.nonEmpty, "Please specify a cluster.")
     val hasAllClusters = onClusters.find(_ == "ALL_CLUSTERS")
     if (hasAllClusters.isDefined) {
       allClusters.foreach { cluster =>
