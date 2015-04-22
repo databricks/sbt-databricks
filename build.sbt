@@ -4,7 +4,7 @@ organization := "com.databricks"
 
 name := "sbt-databricks"
 
-version := "0.1.0-SNAPSHOT"
+version := "0.1.0"
 
 scalaVersion := "2.10.4"
 

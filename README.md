@@ -15,6 +15,17 @@ addSbtPlugin("com.databricks" %% "sbt-databricks" % "0.1.0")
 Usage
 =====
 
+There are four major commands that can be used. Please check the next section for mandatory
+settings before running these commands.:
+ - `dbcDeploy`: Uploads your Library to Databricks Cloud, attaches it to specified clusters,
+  and restarts the clusters if a previous version of the library was attached. This method
+  encapsulates the following commands.
+ - `dbcUpload`: Uploads your Library to Databricks Cloud. Deletes the older version.
+ - `dbcAttach`: Attaches your Library to the specified clusters.
+ - `dbcRestartClusters`: Restarts the specified clusters.
+Other helpful commands are:
+ - `dbcListClusters`: View the states of available clusters.
+
 There are a few configuration settings that need to be made in the build file.
 Please set the following parameters according to your setup:
 
