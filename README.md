@@ -5,6 +5,10 @@ sbt plugin to deploy your projects to Databricks Cloud!
 
 http://go.databricks.com/register-for-dbc
 
+Requirements
+============
+1. Open up the port `34563` for DB Api.
+
 Installation
 ============
 
