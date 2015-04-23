@@ -1,3 +1,5 @@
+import bintray.Keys._
+
 sbtPlugin := true
 
 organization := "com.databricks"
@@ -15,30 +17,35 @@ libraryDependencies ++= Seq(
     "com.fasterxml.jackson.module" %% "jackson-module-scala" % "2.4.2",
     "commons-fileupload" % "commons-fileupload" % "1.3")
 
-publishMavenStyle := true
+version in ThisBuild := s"${version.value}"
+
+organization in ThisBuild := s"${organization.value}"
+
+licenses += ("Apache-2.0", url("https://www.apache.org/licenses/LICENSE-2.0.html"))
+
+publishMavenStyle := false
+
+bintrayPublishSettings
+
+repository in bintray := "sbt-plugins"
+
+bintrayOrganization in bintray := None
 
 pomExtra := (
   <url>https://github.com/databricks/sbt-databricks</url>
-    <licenses>
-        <license>
-            <name>Apache License, Verision 2.0</name>
-            <url>http://www.apache.org/licenses/LICENSE-2.0.html</url>
-            <distribution>repo</distribution>
-        </license>
-    </licenses>
-    <scm>
-        <url>git@github.com:databricks/sbt-databricks.git</url>
-        <connection>scm:git:git@github.com:databricks/sbt-databricks.git</connection>
-    </scm>
-    <developers>
-        <developer>
-            <id>brkyvz</id>
-            <name>Burak Yavuz</name>
-            <url>https://github.com/brkyvz</url>
-        </developer>
-        <developer>
-          <id>marmbrus</id>
-          <name>Michael Armbrust</name>
-          <url>https://github.com/marmbrus</url>
-        </developer>
-    </developers>)
+  <scm>
+      <url>git@github.com:databricks/sbt-databricks.git</url>
+      <connection>scm:git:git@github.com:databricks/sbt-databricks.git</connection>
+  </scm>
+  <developers>
+      <developer>
+          <id>brkyvz</id>
+          <name>Burak Yavuz</name>
+          <url>https://github.com/brkyvz</url>
+      </developer>
+      <developer>
+        <id>marmbrus</id>
+        <name>Michael Armbrust</name>
+        <url>https://github.com/marmbrus</url>
+      </developer>
+  </developers>)
