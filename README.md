@@ -3,6 +3,8 @@ sbt-databricks
 
 sbt plugin to deploy your projects to Databricks Cloud!
 
+http://go.databricks.com/register-for-dbc
+
 Installation
 ============
 
