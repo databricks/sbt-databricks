@@ -25,6 +25,7 @@ settings before running these commands.:
  - `dbcUpload`: Uploads your Library to Databricks Cloud. Deletes the older version.
  - `dbcAttach`: Attaches your Library to the specified clusters.
  - `dbcRestartClusters`: Restarts the specified clusters.
+
 Other helpful commands are:
  - `dbcListClusters`: View the states of available clusters.
 
@@ -39,7 +40,7 @@ dbcUsername := // e.g. "admin"
 dbcPassword := // e.g. "admin" or System.getenv("DBCLOUD_PASSWORD")
 
 // The URL to the Databricks Cloud DB Api. Don't forget to set the port number to 34563!
-dbcDBApiURL := // https://organization.cloud.databricks.com:34563/api/1.1
+dbcApiUrl := // https://organization.cloud.databricks.com:34563/api/1.1
 
 // Add any clusters that you would like to deploy your work to. e.g. "My Cluster"
 dbcClusters += // Add "ALL_CLUSTERS" if you want to attach your work to all clusters
