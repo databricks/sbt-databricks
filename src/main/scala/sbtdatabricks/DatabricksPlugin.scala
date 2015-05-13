@@ -65,10 +65,22 @@ object DatabricksPlugin extends AutoPlugin {
     }.flatMap(c => c)
   }
 
-  private lazy val dbcClasspath = Def.task {
-    ((Keys.`package` in Compile).value +: (managedClasspath in Runtime).value.files
-      ).filterNot(_.getName startsWith "scala-")
-  }
+  /** Walks the dependency tree and packages all the required dependencies. */
+  private def dbcClasspath: Def.Initialize[Task[Seq[java.io.File]]] =
+    (thisProjectRef, thisProject, state).flatMap {
+      (projectRef: ProjectRef, project: ResolvedProject, currentState: State) => {
+        def visit(p: ProjectRef): Seq[Task[java.io.File]] = {
+          val extracted = Project.extract(currentState)
+          val data = extracted.structure.data
+          val depProject = thisProject in p get data getOrElse sys.error("Invalid project: " + p)
+          val jarFile = (Keys.`package` in (p, ConfigKey("runtime"))).get(data).get
+          jarFile +: depProject.dependencies.map {
+            case ResolvedClasspathDependency(dep, confMapping) => dep
+          }.flatMap(visit).toList
+        }
+        visit(projectRef).join.map(_.toSet.toSeq)
+      }
+    }
 
   private val dbcFetchClusters = taskKey[Seq[Cluster]]("Fetch all available clusters.")
 
