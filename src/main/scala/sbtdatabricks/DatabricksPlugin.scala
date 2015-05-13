@@ -46,7 +46,7 @@ object DatabricksPlugin extends AutoPlugin {
     m
   }
 
-  /** Existing instances of this library on Databricks Cloud with SNAPSHOT versions. */
+  /** Existing instances of this library on Databricks Cloud. */
   private lazy val existingLibraries: Def.Initialize[Task[Seq[UploadedLibrary]]] = Def.task {
     val cp = dbcClasspath.value
     val allLibraries = dbcFetchLibraries.value
