@@ -5,11 +5,11 @@ import Keys._
 import scala.collection.mutable.{HashMap => MutHashMap, MultiMap => MutMultiMap, Set => MutSet}
 
 object DatabricksPlugin extends AutoPlugin {
-  
+
   type LibraryName = String
   type ClusterName = String
   type LibraryMap = MutHashMap[LibraryName, MutSet[LibraryListResult]] with MutMultiMap[LibraryName, LibraryListResult]
-  
+
   object autoImport {
 
     val dbcUpload = taskKey[Seq[UploadedLibrary]]("Upload your jar to Databricks Cloud as a Library.")
@@ -33,10 +33,10 @@ object DatabricksPlugin extends AutoPlugin {
   import autoImport._
 
   private val dbcApiClient = taskKey[DatabricksHttp]("Create client to handle SSL communication.")
-  
+
   override def requires = plugins.JvmPlugin
   override def trigger = allRequirements
-  
+
   private lazy val dbcFetchLibraries: Def.Initialize[Task[LibraryMap]] = Def.task {
     val libs = dbcApiClient.value.fetchLibraries
     val m = new MutHashMap[String, MutSet[LibraryListResult]] with MutMultiMap[String, LibraryListResult]
@@ -46,7 +46,7 @@ object DatabricksPlugin extends AutoPlugin {
     m
   }
 
-  /** Existing instances of this library on Databricks Cloud. */
+  /** Existing instances of this library on Databricks Cloud with SNAPSHOT versions. */
   private lazy val existingLibraries: Def.Initialize[Task[Seq[UploadedLibrary]]] = Def.task {
     val cp = dbcClasspath.value
     val allLibraries = dbcFetchLibraries.value
@@ -64,29 +64,33 @@ object DatabricksPlugin extends AutoPlugin {
       }
     }.flatMap(c => c)
   }
-  
+
   private lazy val dbcClasspath = Def.task {
     ((Keys.`package` in Compile).value +: (managedClasspath in Runtime).value.files
       ).filterNot(_.getName startsWith "scala-")
   }
 
   private val dbcFetchClusters = taskKey[Seq[Cluster]]("Fetch all available clusters.")
-  
+
   private lazy val uploadImpl: Def.Initialize[Task[Seq[UploadedLibrary]]] = Def.taskDyn {
     val client = dbcApiClient.value
     val folder = dbcLibraryPath.value
+    val existing = existingLibraries.value
+    val existingSnapshots = existing.filter(_.name.contains("-SNAPSHOT"))
     val classpath = dbcClasspath.value
     var deleteMethodFinished = false
-    val deleteMethod = client.deleteLibraries(existingLibraries.value)
+    val deleteMethod = client.deleteLibraries(existingSnapshots)
     deleteMethodFinished ||= deleteMethod
     if (deleteMethodFinished) {
       Def.task {
-        val uploaded = classpath.map { jar =>
+        // Either upload the newer SNAPSHOT versions, or everything, because they don't exist yet.
+        val toUpload = classpath.toSet -- existing.map(_.jar) ++ existingSnapshots.map(_.jar)
+        val uploaded = toUpload.map { jar =>
           println(s"Uploading ${jar.getName}")
           val uploadedLib = client.uploadJar(jar.getName, jar, folder)
           new UploadedLibrary(jar.getName, jar, uploadedLib.id)
         }
-        uploaded
+        uploaded.toSeq
       }
     } else {
       Def.task {
@@ -97,7 +101,7 @@ object DatabricksPlugin extends AutoPlugin {
 
   private lazy val deployImpl: Def.Initialize[Task[Unit]] = Def.taskDyn {
     val client = dbcApiClient.value
-    val oldVersions = existingLibraries.value
+    val oldVersions = existingLibraries.value.filter(_.name.contains("-SNAPSHOT"))
     val onClusters = dbcClusters.value
     val allClusters = dbcFetchClusters.value
     var requiresRestart = false
@@ -124,7 +128,7 @@ object DatabricksPlugin extends AutoPlugin {
       }
     }
   }
-  
+
   val baseDBCSettings: Seq[Setting[_]] = Seq(
     dbcClusters := Seq.empty[String],
     dbcRestartOnAttach := true,
@@ -157,7 +161,6 @@ object DatabricksPlugin extends AutoPlugin {
   )
 
   override lazy val projectSettings: Seq[Setting[_]] = baseDBCSettings
-  
 }
 
 case class UploadedLibraryId(id: String)
