@@ -65,8 +65,14 @@ object DatabricksPlugin extends AutoPlugin {
     }.flatMap(c => c)
   }
 
-  /** Walks the dependency tree and packages all the required dependencies. */
-  private def dbcClasspath: Def.Initialize[Task[Seq[java.io.File]]] =
+  /** Returns all the jars related to this library. */
+  private lazy val dbcClasspath = Def.task {
+    (dbcLocalProjects.value ++ (managedClasspath in Runtime).value.files
+      ).filterNot(_.getName startsWith "scala-")
+  }
+
+  /** Walks the dependency tree of local projects and packages them. */
+  private def dbcLocalProjects: Def.Initialize[Task[Seq[File]]] =
     (thisProjectRef, thisProject, state).flatMap {
       (projectRef: ProjectRef, project: ResolvedProject, currentState: State) => {
         def visit(p: ProjectRef): Seq[Task[java.io.File]] = {
