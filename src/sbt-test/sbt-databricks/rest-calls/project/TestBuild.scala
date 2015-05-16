@@ -117,10 +117,11 @@ object TestBuild extends Build {
       TaskKey[Unit]("test") := {
         dbcUpload.value
         val output = Source.fromFile(outputFile).getLines().toSeq
-        // 2 from Spark csv, 1 from deleting test4 (the one in /jkl is omitted), 1 from uploading test4
-        if (output.length != 5) sys.error("Wrong number of updates printed.")
+        // 1 from Spark csv (upload common-csv, the dependency),
+        // 1 from deleting test4 (the one in /jkl is omitted), 1 from uploading test4
+        if (output.length != 3) sys.error("Wrong number of updates printed.")
         output.zipWithIndex.foreach { case (line, index) =>
-          if (index > 1) {
+          if (index > 0) {
             if (!line.contains("Uploading")) sys.error("Upload message not printed")
           } else {
             if (!line.contains("Deleting")) sys.error("Delete message not printed")
