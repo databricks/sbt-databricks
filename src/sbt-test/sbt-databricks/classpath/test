@@ -1,0 +1,5 @@
+# check if all dependencies get packaged
+> multi-a/checkClasspath
+> multi-b/checkClasspath
+$ exists multi-a/target/scala-2.10/multi-a_2.10-0.1.jar
+$ exists multi-b/target/scala-2.10/multi-b_2.10-0.1.1.jar
