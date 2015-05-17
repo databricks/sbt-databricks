@@ -92,30 +92,27 @@ object DatabricksPlugin extends AutoPlugin {
   // The second boolean is a hack to make execution sequential and to stabilize tests
   val dbcFetchClusters = taskKey[(Seq[Cluster], Boolean)]("Fetch all available clusters.")
 
-  private lazy val uploadImpl: Def.Initialize[Task[Seq[UploadedLibrary]]] = Def.taskDyn {
+  private def uploadImpl1(
+      client: DatabricksHttp,
+      folder: String,
+      cp: Seq[File],
+      existing: Seq[UploadedLibrary]): Seq[UploadedLibrary] = {
+    val existingSnapshots = existing.filter(_.name.contains("-SNAPSHOT"))
+    client.deleteLibraries(existingSnapshots)
+    // Either upload the newer SNAPSHOT versions, or everything, because they don't exist yet.
+    val toUpload = cp.toSet -- existing.map(_.jar) ++ existingSnapshots.map(_.jar)
+    toUpload.map { jar =>
+      val uploadedLib = client.uploadJar(jar.getName, jar, folder)
+      new UploadedLibrary(jar.getName, jar, uploadedLib.id)
+    }.toSeq
+  }
+
+  private lazy val uploadImpl: Def.Initialize[Task[Seq[UploadedLibrary]]] = Def.task {
     val client = dbcApiClient.value
     val folder = dbcLibraryPath.value
     val existing = existingLibraries.value
-    val existingSnapshots = existing.filter(_.name.contains("-SNAPSHOT"))
     val classpath = dbcClasspath.value
-    var deleteMethodFinished = false
-    val deleteMethod = client.deleteLibraries(existingSnapshots)
-    deleteMethodFinished ||= deleteMethod
-    if (deleteMethodFinished) {
-      Def.task {
-        // Either upload the newer SNAPSHOT versions, or everything, because they don't exist yet.
-        val toUpload = classpath.toSet -- existing.map(_.jar) ++ existingSnapshots.map(_.jar)
-        val uploaded = toUpload.map { jar =>
-          val uploadedLib = client.uploadJar(jar.getName, jar, folder)
-          new UploadedLibrary(jar.getName, jar, uploadedLib.id)
-        }
-        uploaded.toSeq
-      }
-    } else {
-      Def.task {
-        throw new RuntimeException("Deleting files returned an error.")
-      }
-    }
+    uploadImpl1(client, folder, classpath, existing)
   }
 
   private lazy val deployImpl: Def.Initialize[Task[Unit]] = Def.taskDyn {
@@ -124,18 +121,28 @@ object DatabricksPlugin extends AutoPlugin {
     val onClusters = dbcClusters.value
     if (done) {
       Def.taskDyn {
-        val oldVersions = existingLibraries.value.filter(_.name.contains("-SNAPSHOT"))
+        val oldVersions = existingLibraries.value
         var requiresRestart = false
         var count = 0
-        oldVersions.foreach { oldLib =>
-          requiresRestart ||= client.isOldVersionAttached(oldLib, allClusters, onClusters)
+        val requiresAttachFromExisting = oldVersions.flatMap { oldLib =>
           count += 1
+          val isOldVersionAttached = client.isOldVersionAttached(oldLib, allClusters, onClusters)
+          if (isOldVersionAttached && oldLib.name.contains("-SNAPSHOT")) {
+            requiresRestart = true
+            Seq(oldLib)
+          } else if (!isOldVersionAttached) {
+            Seq(oldLib)
+          } else {
+            Seq.empty[UploadedLibrary]
+          }
         }
         // Hack to make execution sequential
         if (count == oldVersions.length) {
           Def.task {
-            val libraries = dbcUpload.value
-            for (lib <- libraries) {
+            val uploaded = uploadImpl1(client, dbcLibraryPath.value, dbcClasspath.value, oldVersions)
+            val requiresAttach =
+              requiresAttachFromExisting.filterNot(_.name.contains("-SNAPSHOT")).toSet ++ uploaded
+            for (lib <- requiresAttach) {
               client.foreachCluster(onClusters, allClusters)(client.attachToCluster(lib, _))
             }
             if (dbcRestartOnAttach.value && requiresRestart) {

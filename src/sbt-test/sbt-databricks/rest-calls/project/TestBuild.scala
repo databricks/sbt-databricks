@@ -251,11 +251,10 @@ object TestBuild extends Build {
       /* Work flow:
         1- Fetch all clusters from DBC
         2- Fetch existing libraries, see if any jars in the classpath match those libraries
-        3- Fetch libraries once again (in order to delete inside dbcUpload)
-        4- Upload all jars to DBC
-        5- Attach libraries to the clusters
+        3- Upload all jars to DBC
+        4- Attach libraries to the clusters
       */
-      dbcApiClient := mockClient(Seq(clusterList, libraryFetch, libraryFetch,
+      dbcApiClient := mockClient(Seq(clusterList, libraryFetch,
         uploadedLibResponse("1"), uploadedLibResponse("3"), uploadedLibResponse("4")), outputFile),
       dbcClusters += "a",
       dbcLibraryPath := "/def/",
@@ -279,6 +278,13 @@ object TestBuild extends Build {
   lazy val test9 = Project(id = "deploy", base = file("9"),
     settings = dbcSettings ++ deployTest)
 
+  def generateLibStatus(id: String, name: String): String = {
+    val libStatus = LibraryStatus(id, name, "/def/", "java-jar", List(name), false,
+      List(LibraryClusterStatus("1", "Attached"), LibraryClusterStatus("2", "Detached"),
+        LibraryClusterStatus("3", "Detached")))
+    mapper.writeValueAsString(libStatus)
+  }
+
   def secondDeployTest: Seq[Setting[_]] = {
     val initialLibs = Seq(
       LibraryListResult("1", "test10_2.10-0.1-SNAPSHOT.jar", "/def/"),
@@ -287,27 +293,22 @@ object TestBuild extends Build {
       LibraryListResult("4", "spark-csv_2.10-1.0.0.jar", "/def/"))
     val libraryFetch = mapper.writeValueAsString(initialLibs)
     val clusterList = mapper.writeValueAsString(exampleClusters)
-    def generateLibStatus(id: String, name: String): String = {
-      val libStatus = LibraryStatus(id, name, "/def/", "java-jar", List(name), false,
-        List(LibraryClusterStatus("1", "Attached"), LibraryClusterStatus("2", "Detached"),
-          LibraryClusterStatus("3", "Detached")))
-      mapper.writeValueAsString(libStatus)
-    }
     val t9Res = generateLibStatus("1", "test10_2.10-0.1-SNAPSHOT.jar")
+    val csv = generateLibStatus("4", "spark-csv_2.10-1.0.0.jar")
+    val commons = generateLibStatus("3", "commons-csv-1.1.jar")
     val outputFile = file("10") / "output.txt"
     Seq(
       /* Work flow:
         1- Fetch clusters from DBC
         2- Fetch existing libraries on DBC
         3- Get status of libraries on DBC that is also on the classpath (that is going to be uploaded)
-        4- Fetch all libraries again (I think this comes from dbcUpload)
-        5- Delete the older versions of the libraries
-        6- Upload newer versions of libraries
-        7- Attach the libraries and restart the cluster(s)
+        4- Delete the older versions of the libraries
+        5- Upload newer versions of libraries
+        6- Attach the libraries and restart the cluster(s)
         Empty messages correspond to deleteJar, attachJar, and clusterRestart responses
         */
       dbcApiClient := mockClient(Seq(clusterList, libraryFetch,
-        t9Res, libraryFetch, "", // delete only the SNAPSHOT jar and re-upload it
+        t9Res, csv, commons, "", // delete only the SNAPSHOT jar and re-upload it
         uploadedLibResponse("5"), "", ""), outputFile), // first is attach, last is restart
       dbcClusters += "a",
       dbcLibraryPath := "/def/",
@@ -340,6 +341,49 @@ object TestBuild extends Build {
 
   lazy val test11 = Project(id = "serverError", base = file("11"),
     settings = dbcSettings ++ serverErrorTest)
+
+  def deployWithoutRestartTest: Seq[Setting[_]] = {
+    val initialLibs = Seq(
+      LibraryListResult("1", "test12_2.10-0.1-SNAPSHOT.jar", "/def/"),
+      LibraryListResult("2", "abc", "/def/"),
+      LibraryListResult("3", "commons-csv-1.1.jar", "/def/"),
+      LibraryListResult("4", "spark-csv_2.10-1.0.0.jar", "/def/"))
+    val libraryFetch = mapper.writeValueAsString(initialLibs)
+    val clusterList = mapper.writeValueAsString(exampleClusters)
+    def generateLibStatus(id: String, name: String): String = {
+      val libStatus = LibraryStatus(id, name, "/def/", "java-jar", List(name), false,
+        List(LibraryClusterStatus("1", "Attached"), LibraryClusterStatus("2", "Detached"),
+          LibraryClusterStatus("3", "Detached")))
+      mapper.writeValueAsString(libStatus)
+    }
+    val t12Res = generateLibStatus("1", "test12_2.10-0.1-SNAPSHOT.jar")
+    val csv = generateLibStatus("4", "spark-csv_2.10-1.0.0.jar")
+    val commons = generateLibStatus("3", "commons-csv-1.1.jar")
+    val outputFile = file("12") / "output.txt"
+    Seq(
+      dbcApiClient := mockClient(Seq(clusterList, libraryFetch,
+        t12Res, csv, commons, "", // delete only the SNAPSHOT jar and re-upload it
+        uploadedLibResponse("5"), "", "", ""), outputFile), // three attaches, no restart
+      dbcClusters += "b",
+      dbcLibraryPath := "/def/",
+      name := "test12",
+      version := "0.1-SNAPSHOT",
+      libraryDependencies += "com.databricks" %% "spark-csv" % "1.0.0",
+      TaskKey[Unit]("test") := {
+        dbcDeploy.value
+        val out = Source.fromFile(outputFile).getLines().toSeq
+        if (out.length != 5) sys.error("Wrong number of messages printed.")
+        if (!out(0).contains("Deleting")) sys.error("Delete message not printed")
+        if (!out(1).contains("Uploading")) sys.error("Upload message not printed")
+        if (!out(2).contains("Attaching")) sys.error("Attach message not printed")
+        if (!out(3).contains("Attaching")) sys.error("Attach message not printed")
+        if (!out(4).contains("Attaching")) sys.error("Attach message not printed")
+      }
+    )
+  }
+
+  lazy val test12 = Project(id = "deployWithoutRestart", base = file("12"),
+    settings = dbcSettings ++ deployWithoutRestartTest)
 
   def mockClient(responses: Seq[String], file: File): DatabricksHttp = {
     val client = mmock[HttpClient]

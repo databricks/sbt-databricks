@@ -11,3 +11,4 @@
 # this will show error on the console, but the very last line should be `success`
 # we are testing if we do get an error, so that's okay.
 -> serverError/test
+> deployWithoutRestart/test
