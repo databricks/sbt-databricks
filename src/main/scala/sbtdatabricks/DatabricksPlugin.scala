@@ -12,7 +12,8 @@ object DatabricksPlugin extends AutoPlugin {
 
   object autoImport {
 
-    val dbcUpload = taskKey[Seq[UploadedLibrary]]("Upload your jar to Databricks Cloud as a Library.")
+    val dbcUpload = taskKey[(Seq[UploadedLibrary], Seq[UploadedLibrary])](
+      "Upload your jar to Databricks Cloud as a Library.")
     val dbcAttach = taskKey[Unit]("Attach your library to a cluster. Restart cluster if dbcRestartOnAttach is " +
       "true, and if necessary.")
     val dbcDeploy = taskKey[Unit]("Upload your library to Databricks Cloud and attach it to clusters. Performs " +
@@ -90,31 +91,29 @@ object DatabricksPlugin extends AutoPlugin {
 
   private val dbcFetchClusters = taskKey[Seq[Cluster]]("Fetch all available clusters.")
 
-  private lazy val uploadImpl: Def.Initialize[Task[Seq[UploadedLibrary]]] = Def.taskDyn {
+  private def uploadImpl1(
+      client: DatabricksHttp,
+      folder: String,
+      cp: Seq[File],
+      existing: Seq[UploadedLibrary]): (Seq[UploadedLibrary], Seq[UploadedLibrary]) = {
+    // TODO: try to figure out dependencies with changed versions
+    val toDelete = existing.filter(_.name.contains("-SNAPSHOT"))
+    client.deleteLibraries(toDelete)
+    // Either upload the newer SNAPSHOT versions, or everything, because they don't exist yet.
+      val toUpload = cp.toSet -- existing.map(_.jar) ++ toDelete.map(_.jar)
+    val uploaded = toUpload.map { jar =>
+      val uploadedLib = client.uploadJar(jar.getName, jar, folder)
+      new UploadedLibrary(jar.getName, jar, uploadedLib.id)
+    }.toSeq
+    (uploaded, toDelete)
+  }
+
+  private lazy val uploadImpl: Def.Initialize[Task[(Seq[UploadedLibrary], Seq[UploadedLibrary])]] = Def.task {
     val client = dbcApiClient.value
     val folder = dbcLibraryPath.value
     val existing = existingLibraries.value
-    val existingSnapshots = existing.filter(_.name.contains("-SNAPSHOT"))
     val classpath = dbcClasspath.value
-    var deleteMethodFinished = false
-    val deleteMethod = client.deleteLibraries(existingSnapshots)
-    deleteMethodFinished ||= deleteMethod
-    if (deleteMethodFinished) {
-      Def.task {
-        // Either upload the newer SNAPSHOT versions, or everything, because they don't exist yet.
-        val toUpload = classpath.toSet -- existing.map(_.jar) ++ existingSnapshots.map(_.jar)
-        val uploaded = toUpload.map { jar =>
-          println(s"Uploading ${jar.getName}")
-          val uploadedLib = client.uploadJar(jar.getName, jar, folder)
-          new UploadedLibrary(jar.getName, jar, uploadedLib.id)
-        }
-        uploaded.toSeq
-      }
-    } else {
-      Def.task {
-        throw new RuntimeException("Deleting files returned an error.")
-      }
-    }
+    uploadImpl1(client, folder, classpath, existing)
   }
 
   private lazy val deployImpl: Def.Initialize[Task[Unit]] = Def.taskDyn {
