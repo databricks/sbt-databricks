@@ -385,6 +385,49 @@ object TestBuild extends Build {
   lazy val test12 = Project(id = "deployWithoutRestart", base = file("12"),
     settings = dbcSettings ++ deployWithoutRestartTest)
 
+  def deployAllClustersTest: Seq[Setting[_]] = {
+    val initialLibs = Seq(
+      LibraryListResult("1", "test13_2.10-0.1-SNAPSHOT.jar", "/def/"),
+      LibraryListResult("2", "abc", "/def/"),
+      LibraryListResult("3", "commons-csv-1.1.jar", "/def/"),
+      LibraryListResult("4", "spark-csv_2.10-1.0.0.jar", "/def/"))
+    val libraryFetch = mapper.writeValueAsString(initialLibs)
+    val clusterList = mapper.writeValueAsString(exampleClusters)
+    val t13Res = generateLibStatus("1", "test13_2.10-0.1-SNAPSHOT.jar")
+    val csv = generateLibStatus("4", "spark-csv_2.10-1.0.0.jar")
+    val commons = generateLibStatus("3", "commons-csv-1.1.jar")
+    val outputFile = file("13") / "output.txt"
+    Seq(
+      dbcApiClient := mockClient(Seq(clusterList, libraryFetch,
+        t13Res, csv, commons, "", // delete only the SNAPSHOT jar and re-upload it
+        uploadedLibResponse("5")), outputFile), // seven attaches, one restart
+      dbcClusters += "ALL_CLUSTERS",
+      dbcLibraryPath := "/def/",
+      name := "test13",
+      version := "0.1-SNAPSHOT",
+      libraryDependencies += "com.databricks" %% "spark-csv" % "1.0.0",
+      TaskKey[Unit]("test") := {
+        dbcDeploy.value
+        val out = Source.fromFile(outputFile).getLines().toSeq
+        if (out.length != 10) sys.error("Wrong number of messages printed.")
+        if (!out(0).contains("Deleting")) sys.error("Delete message not printed")
+        if (!out(1).contains("Uploading")) sys.error("Upload message not printed")
+        // attach all three to 2 clusters + attach new snapshot to cluster a.
+        if (!out(2).contains("Attaching")) sys.error("Attach message not printed")
+        if (!out(3).contains("Attaching")) sys.error("Attach message not printed")
+        if (!out(4).contains("Attaching")) sys.error("Attach message not printed")
+        if (!out(5).contains("Attaching")) sys.error("Attach message not printed")
+        if (!out(6).contains("Attaching")) sys.error("Attach message not printed")
+        if (!out(7).contains("Attaching")) sys.error("Attach message not printed")
+        if (!out(8).contains("Attaching")) sys.error("Attach message not printed")
+        if (!out(9).contains("Restarting")) sys.error("Restart message not printed")
+      }
+    )
+  }
+
+  lazy val test13 = Project(id = "deployAllClusters", base = file("13"),
+    settings = dbcSettings ++ deployAllClustersTest)
+
   def mockClient(responses: Seq[String], file: File): DatabricksHttp = {
     val client = mmock[HttpClient]
     val mocks = responses.map { res =>

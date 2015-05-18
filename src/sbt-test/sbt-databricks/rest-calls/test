@@ -12,3 +12,4 @@
 # we are testing if we do get an error, so that's okay.
 -> serverError/test
 > deployWithoutRestart/test
+> deployAllClusters/test

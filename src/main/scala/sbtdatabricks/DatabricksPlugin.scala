@@ -12,7 +12,8 @@ object DatabricksPlugin extends AutoPlugin {
 
   object autoImport {
 
-    val dbcUpload = taskKey[Seq[UploadedLibrary]]("Upload your jar to Databricks Cloud as a Library.")
+    val dbcUpload = taskKey[(Seq[UploadedLibrary], Seq[UploadedLibrary])](
+      "Upload your jar to Databricks Cloud as a Library.")
     val dbcAttach = taskKey[Unit]("Attach your library to a cluster. Restart cluster if dbcRestartOnAttach is " +
       "true, and if necessary.")
     val dbcDeploy = taskKey[Unit]("Upload your library to Databricks Cloud and attach it to clusters. Performs " +
@@ -28,6 +29,8 @@ object DatabricksPlugin extends AutoPlugin {
     val dbcApiUrl = settingKey[String]("The URL for the DB API endpoint")
     val dbcUsername = settingKey[String]("The username for Databricks Cloud")
     val dbcPassword = settingKey[String]("The password for Databricks Cloud")
+
+    final val DBC_ALL_CLUSTERS = "ALL_CLUSTERS"
   }
 
   import autoImport._
@@ -92,22 +95,30 @@ object DatabricksPlugin extends AutoPlugin {
   // The second boolean is a hack to make execution sequential and to stabilize tests
   val dbcFetchClusters = taskKey[(Seq[Cluster], Boolean)]("Fetch all available clusters.")
 
+  private lazy val dbcClusterSet = Def.setting(dbcClusters.value.toSet)
+
+  private def getRealClusterList(set: Set[ClusterName], all: Seq[Cluster]): Set[ClusterName] = {
+    if (set.exists(_ == DBC_ALL_CLUSTERS)) all.map(_.name).toSet
+    else set
+  }
+
   private def uploadImpl1(
       client: DatabricksHttp,
       folder: String,
       cp: Seq[File],
-      existing: Seq[UploadedLibrary]): Seq[UploadedLibrary] = {
-    val existingSnapshots = existing.filter(_.name.contains("-SNAPSHOT"))
-    client.deleteLibraries(existingSnapshots)
+      existing: Seq[UploadedLibrary]): (Seq[UploadedLibrary], Seq[UploadedLibrary]) = {
+    val toDelete = existing.filter(_.name.contains("-SNAPSHOT"))
+    client.deleteLibraries(toDelete)
     // Either upload the newer SNAPSHOT versions, or everything, because they don't exist yet.
-    val toUpload = cp.toSet -- existing.map(_.jar) ++ existingSnapshots.map(_.jar)
-    toUpload.map { jar =>
+    val toUpload = cp.toSet -- existing.map(_.jar) ++ toDelete.map(_.jar)
+    val uploaded = toUpload.map { jar =>
       val uploadedLib = client.uploadJar(jar.getName, jar, folder)
       new UploadedLibrary(jar.getName, jar, uploadedLib.id)
     }.toSeq
+    (uploaded, toDelete)
   }
 
-  private lazy val uploadImpl: Def.Initialize[Task[Seq[UploadedLibrary]]] = Def.task {
+  private lazy val uploadImpl: Def.Initialize[Task[(Seq[UploadedLibrary], Seq[UploadedLibrary])]] = Def.task {
     val client = dbcApiClient.value
     val folder = dbcLibraryPath.value
     val existing = existingLibraries.value
@@ -118,35 +129,36 @@ object DatabricksPlugin extends AutoPlugin {
   private lazy val deployImpl: Def.Initialize[Task[Unit]] = Def.taskDyn {
     val client = dbcApiClient.value
     val (allClusters, done) = dbcFetchClusters.value
-    val onClusters = dbcClusters.value
+    val onClusters = getRealClusterList(dbcClusterSet.value, allClusters)
     if (done) {
       Def.taskDyn {
         val oldVersions = existingLibraries.value
-        var requiresRestart = false
         var count = 0
-        val requiresAttachFromExisting = oldVersions.flatMap { oldLib =>
+        var clustersToRestart = Set.empty[String]
+        // a tuple of the library and the set of clusters to attach it to
+        val requiresAttachFromExisting: Seq[(UploadedLibrary, Set[String])] = oldVersions.flatMap { oldLib =>
           count += 1
-          val isOldVersionAttached = client.isOldVersionAttached(oldLib, allClusters, onClusters)
-          if (isOldVersionAttached && oldLib.name.contains("-SNAPSHOT")) {
-            requiresRestart = true
-            Seq(oldLib)
-          } else if (!isOldVersionAttached) {
-            Seq(oldLib)
+          val attachedTo = client.isOldVersionAttached(oldLib, allClusters, onClusters)
+          if (oldLib.name.contains("-SNAPSHOT")) {
+            clustersToRestart ++= attachedTo
+            Seq.empty[(UploadedLibrary, Set[String])]
+          } else if (attachedTo != onClusters) {
+            Seq((oldLib, onClusters -- attachedTo))
           } else {
-            Seq.empty[UploadedLibrary]
+            Seq.empty[(UploadedLibrary, Set[String])]
           }
         }
         // Hack to make execution sequential
         if (count == oldVersions.length) {
           Def.task {
-            val uploaded = uploadImpl1(client, dbcLibraryPath.value, dbcClasspath.value, oldVersions)
-            val requiresAttach =
-              requiresAttachFromExisting.filterNot(_.name.contains("-SNAPSHOT")).toSet ++ uploaded
-            for (lib <- requiresAttach) {
-              client.foreachCluster(onClusters, allClusters)(client.attachToCluster(lib, _))
+            val (uploaded, _) =
+              uploadImpl1(client, dbcLibraryPath.value, dbcClasspath.value, oldVersions)
+            val requiresAttach = requiresAttachFromExisting.toSet ++ uploaded.map((_, onClusters))
+            for (libs <- requiresAttach) {
+              client.foreachCluster(libs._2, allClusters)(client.attachToCluster(libs._1, _))
             }
-            if (dbcRestartOnAttach.value && requiresRestart) {
-              client.foreachCluster(onClusters, allClusters)(client.restartCluster(_))
+            if (dbcRestartOnAttach.value && clustersToRestart.nonEmpty) {
+              client.foreachCluster(clustersToRestart, allClusters)(client.restartCluster(_))
             }
           }
         } else {
@@ -165,7 +177,7 @@ object DatabricksPlugin extends AutoPlugin {
     dbcApiClient := DatabricksHttp(dbcApiUrl.value, dbcUsername.value, dbcPassword.value),
     dbcFetchClusters := (dbcApiClient.value.fetchClusters, true),
     dbcRestartClusters := {
-      val onClusters = dbcClusters.value
+      val onClusters = dbcClusterSet.value
       val (allClusters, _) = dbcFetchClusters.value
       val client = dbcApiClient.value
       client.foreachCluster(onClusters, allClusters)(client.restartCluster(_))
@@ -179,7 +191,7 @@ object DatabricksPlugin extends AutoPlugin {
     dbcUpload := uploadImpl.value,
     dbcAttach <<= Def.taskDyn {
       val client = dbcApiClient.value
-      val onClusters = dbcClusters.value
+      val onClusters = dbcClusterSet.value
       val (allClusters, done) = dbcFetchClusters.value
       if (done) {
         Def.task {
