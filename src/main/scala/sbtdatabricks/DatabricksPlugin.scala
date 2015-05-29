@@ -29,6 +29,8 @@ object DatabricksPlugin extends AutoPlugin {
     val dbcApiUrl = settingKey[String]("The URL for the DB API endpoint")
     val dbcUsername = settingKey[String]("The username for Databricks Cloud")
     val dbcPassword = settingKey[String]("The password for Databricks Cloud")
+
+    final val DBC_ALL_CLUSTERS = "ALL_CLUSTERS"
   }
 
   import autoImport._
@@ -88,12 +90,13 @@ object DatabricksPlugin extends AutoPlugin {
       }
     }
 
+  // The second boolean is a hack to make execution sequential and to stabilize tests
   val dbcFetchClusters = taskKey[(Seq[Cluster], Boolean)]("Fetch all available clusters.")
 
   private lazy val dbcClusterSet = Def.setting(dbcClusters.value.toSet)
 
   private def getRealClusterList(set: Set[ClusterName], all: Seq[Cluster]): Set[ClusterName] = {
-    if (set.exists(_ == DBC_ALL_CLUSTERS)) all.map(_.name).toSet
+    if (set.contains(DBC_ALL_CLUSTERS)) all.map(_.name).toSet
     else set
   }
 
@@ -153,10 +156,10 @@ object DatabricksPlugin extends AutoPlugin {
               uploadImpl1(client, dbcLibraryPath.value, dbcClasspath.value, oldVersions)
             val requiresAttach = requiresAttachFromExisting.toSet ++ uploaded.map((_, onClusters))
             for (libs <- requiresAttach) {
-              client.foreachCluster(onClusters, allClusters)(client.attachToCluster(lib, _))
+              client.foreachCluster(libs._2, allClusters)(client.attachToCluster(libs._1, _))
             }
-            if (dbcRestartOnAttach.value && requiresRestart) {
-              client.foreachCluster(onClusters, allClusters)(client.restartCluster(_))
+            if (dbcRestartOnAttach.value && clustersToRestart.nonEmpty) {
+              client.foreachCluster(clustersToRestart, allClusters)(client.restartCluster(_))
             }
           }
         } else {
@@ -175,7 +178,7 @@ object DatabricksPlugin extends AutoPlugin {
     dbcApiClient := DatabricksHttp(dbcApiUrl.value, dbcUsername.value, dbcPassword.value),
     dbcFetchClusters := (dbcApiClient.value.fetchClusters, true),
     dbcRestartClusters := {
-      val onClusters = dbcClusters.value
+      val onClusters = dbcClusterSet.value
       val (allClusters, _) = dbcFetchClusters.value
       val client = dbcApiClient.value
       client.foreachCluster(onClusters, allClusters)(client.restartCluster(_))
@@ -189,7 +192,7 @@ object DatabricksPlugin extends AutoPlugin {
     dbcUpload := uploadImpl.value,
     dbcAttach <<= Def.taskDyn {
       val client = dbcApiClient.value
-      val onClusters = dbcClusters.value
+      val onClusters = dbcClusterSet.value
       val (allClusters, done) = dbcFetchClusters.value
       if (done) {
         Def.task {
