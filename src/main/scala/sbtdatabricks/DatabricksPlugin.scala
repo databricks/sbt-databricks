@@ -33,12 +33,13 @@ object DatabricksPlugin extends AutoPlugin {
 
   import autoImport._
 
-  private val dbcApiClient = taskKey[DatabricksHttp]("Create client to handle SSL communication.")
+  // exposed for testing
+  val dbcApiClient = taskKey[DatabricksHttp]("Create client to handle SSL communication.")
 
   override def requires = plugins.JvmPlugin
   override def trigger = allRequirements
 
-  private lazy val dbcFetchLibraries: Def.Initialize[Task[LibraryMap]] = Def.task {
+  lazy val dbcFetchLibraries: Def.Initialize[Task[LibraryMap]] = Def.task {
     val libs = dbcApiClient.value.fetchLibraries
     val m = new MutHashMap[String, MutSet[LibraryListResult]] with MutMultiMap[String, LibraryListResult]
     libs.foreach { lib =>
@@ -48,7 +49,7 @@ object DatabricksPlugin extends AutoPlugin {
   }
 
   /** Existing instances of this library on Databricks Cloud. */
-  private lazy val existingLibraries: Def.Initialize[Task[Seq[UploadedLibrary]]] = Def.task {
+  lazy val existingLibraries: Def.Initialize[Task[Seq[UploadedLibrary]]] = Def.task {
     val cp = dbcClasspath.value
     val allLibraries = dbcFetchLibraries.value
     val inFolder = dbcLibraryPath.value
@@ -67,7 +68,7 @@ object DatabricksPlugin extends AutoPlugin {
   }
 
   /** Returns all the jars related to this library. */
-  private lazy val dbcClasspath = Def.task {
+  lazy val dbcClasspath = Def.task {
     (dbcLocalProjects.value ++ (managedClasspath in Runtime).value.files
       ).filterNot(_.getName startsWith "scala-")
   }
@@ -77,10 +78,8 @@ object DatabricksPlugin extends AutoPlugin {
     (thisProjectRef, thisProject, state).flatMap {
       (projectRef: ProjectRef, project: ResolvedProject, currentState: State) => {
         def visit(p: ProjectRef): Seq[Task[java.io.File]] = {
-          val extracted = Project.extract(currentState)
-          val data = extracted.structure.data
-          val depProject = thisProject in p get data getOrElse sys.error("Invalid project: " + p)
-          val jarFile = (Keys.`package` in (p, ConfigKey("runtime"))).get(data).get
+          val depProject = (thisProject in p).value
+          val jarFile = (Keys.`package` in Runtime in p).value
           jarFile +: depProject.dependencies.map {
             case ResolvedClasspathDependency(dep, confMapping) => dep
           }.flatMap(visit).toList
@@ -89,7 +88,14 @@ object DatabricksPlugin extends AutoPlugin {
       }
     }
 
-  private val dbcFetchClusters = taskKey[Seq[Cluster]]("Fetch all available clusters.")
+  val dbcFetchClusters = taskKey[(Seq[Cluster], Boolean)]("Fetch all available clusters.")
+
+  private lazy val dbcClusterSet = Def.setting(dbcClusters.value.toSet)
+
+  private def getRealClusterList(set: Set[ClusterName], all: Seq[Cluster]): Set[ClusterName] = {
+    if (set.exists(_ == DBC_ALL_CLUSTERS)) all.map(_.name).toSet
+    else set
+  }
 
   private def uploadImpl1(
       client: DatabricksHttp,
@@ -108,6 +114,8 @@ object DatabricksPlugin extends AutoPlugin {
     (uploaded, toDelete)
   }
 
+  // Delete old SNAPSHOT versions in the Classpath on DBC, and upload all jars that don't exist.
+  // Returns the deleted and uploaded libraries.
   private lazy val uploadImpl: Def.Initialize[Task[(Seq[UploadedLibrary], Seq[UploadedLibrary])]] = Def.task {
     val client = dbcApiClient.value
     val folder = dbcLibraryPath.value
@@ -118,31 +126,45 @@ object DatabricksPlugin extends AutoPlugin {
 
   private lazy val deployImpl: Def.Initialize[Task[Unit]] = Def.taskDyn {
     val client = dbcApiClient.value
-    val oldVersions = existingLibraries.value.filter(_.name.contains("-SNAPSHOT"))
-    val onClusters = dbcClusters.value
-    val allClusters = dbcFetchClusters.value
-    var requiresRestart = false
-    var count = 0
-    oldVersions.foreach { oldLib =>
-      requiresRestart ||= client.isOldVersionAttached(oldLib, allClusters, onClusters)
-      count += 1
-    }
-    var libraries: Seq[UploadedLibrary] = null
-    // Hack to make execution sequential
-    if (count == oldVersions.length) {
-      Def.task {
-        libraries = dbcUpload.value
-        for (lib <- libraries) {
-          client.foreachCluster(onClusters, allClusters)(client.attachToCluster(lib, _))
+    val (allClusters, done) = dbcFetchClusters.value
+    val onClusters = getRealClusterList(dbcClusterSet.value, allClusters)
+    if (done) {
+      Def.taskDyn {
+        val oldVersions = existingLibraries.value
+        var count = 0
+        var clustersToRestart = Set.empty[String]
+        // a tuple of the library and the set of clusters to attach it to
+        val requiresAttachFromExisting: Seq[(UploadedLibrary, Set[String])] = oldVersions.flatMap { oldLib =>
+          count += 1
+          val attachedTo = client.isOldVersionAttached(oldLib, allClusters, onClusters)
+          if (oldLib.name.contains("-SNAPSHOT")) {
+            clustersToRestart ++= attachedTo
+            Seq.empty[(UploadedLibrary, Set[String])]
+          } else if (attachedTo != onClusters) {
+            Seq((oldLib, onClusters -- attachedTo))
+          } else {
+            Seq.empty[(UploadedLibrary, Set[String])]
+          }
         }
-        if (dbcRestartOnAttach.value && requiresRestart) {
-          client.foreachCluster(onClusters, allClusters)(client.restartCluster(_))
+        // Hack to make execution sequential
+        if (count == oldVersions.length) {
+          Def.task {
+            val (uploaded, _) =
+              uploadImpl1(client, dbcLibraryPath.value, dbcClasspath.value, oldVersions)
+            val requiresAttach = requiresAttachFromExisting.toSet ++ uploaded.map((_, onClusters))
+            for (libs <- requiresAttach) {
+              client.foreachCluster(onClusters, allClusters)(client.attachToCluster(lib, _))
+            }
+            if (dbcRestartOnAttach.value && requiresRestart) {
+              client.foreachCluster(onClusters, allClusters)(client.restartCluster(_))
+            }
+          }
+        } else {
+          Def.task(throw new RuntimeException("Deleting files returned an error."))
         }
       }
     } else {
-      Def.task {
-        throw new RuntimeException("Deleting files returned an error.")
-      }
+      Def.task(throw new RuntimeException("Cluster fetch returned an error."))
     }
   }
 
@@ -151,27 +173,33 @@ object DatabricksPlugin extends AutoPlugin {
     dbcRestartOnAttach := true,
     dbcLibraryPath := "/",
     dbcApiClient := DatabricksHttp(dbcApiUrl.value, dbcUsername.value, dbcPassword.value),
-    dbcFetchClusters := dbcApiClient.value.fetchClusters,
+    dbcFetchClusters := (dbcApiClient.value.fetchClusters, true),
     dbcRestartClusters := {
       val onClusters = dbcClusters.value
-      val allClusters = dbcFetchClusters.value
+      val (allClusters, _) = dbcFetchClusters.value
       val client = dbcApiClient.value
       client.foreachCluster(onClusters, allClusters)(client.restartCluster(_))
     },
     dbcListClusters := {
-      val clusters = dbcFetchClusters.value
+      val (clusters, _) = dbcFetchClusters.value
       clusters.zipWithIndex.foreach { case (cluster, idx) =>
         println(s"${idx + 1}- $cluster")
       }
     },
     dbcUpload := uploadImpl.value,
-    dbcAttach := {
+    dbcAttach <<= Def.taskDyn {
       val client = dbcApiClient.value
-      val libraries = existingLibraries.value
       val onClusters = dbcClusters.value
-      val allClusters = dbcFetchClusters.value
-      for (lib <- libraries) {
-        client.foreachCluster(onClusters, allClusters)(client.attachToCluster(lib, _))
+      val (allClusters, done) = dbcFetchClusters.value
+      if (done) {
+        Def.task {
+          val libraries = existingLibraries.value
+          for (lib <- libraries) {
+            client.foreachCluster(onClusters, allClusters)(client.attachToCluster(lib, _))
+          }
+        }
+      } else {
+        Def.task(throw new RuntimeException("Wrong ordering of methods"))
       }
     },
     dbcDeploy := deployImpl.value
