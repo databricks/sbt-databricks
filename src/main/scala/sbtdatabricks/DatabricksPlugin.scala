@@ -75,17 +75,29 @@ object DatabricksPlugin extends AutoPlugin {
       ).filterNot(_.getName startsWith "scala-")
   }
 
-  /** Walks the dependency tree of local projects and packages them. */
+  /**
+   * Visits the local dependencies of a project in a multi-project build, and adds the `package`
+   * task of that dependency to a sequence, so that when we call dbcClasspath, we get all the local
+   * dependencies (given by .dependsOn(project-b)) in addition to any dependencies declared by
+   * libraryDependencies.
+   */
   private def dbcLocalProjects: Def.Initialize[Task[Seq[File]]] =
     (thisProjectRef, thisProject, state).flatMap {
       (projectRef: ProjectRef, project: ResolvedProject, currentState: State) => {
+        // visit all projects that the starting project depends on, and add their package method
+        // to a sequence.
         def visit(p: ProjectRef): Seq[Task[java.io.File]] = {
-          val depProject = (thisProject in p).value
-          val jarFile = (Keys.`package` in Runtime in p).value
+          val extracted = Project.extract(currentState)
+          val data = extracted.structure.data
+          val depProject = (thisProject in p).get(data).getOrElse(sys.error("Invalid project: " + p))
+          val jarFile = (Keys.`package` in Runtime in p).get(data).get
           jarFile +: depProject.dependencies.map {
             case ResolvedClasspathDependency(dep, confMapping) => dep
           }.flatMap(visit).toList
         }
+        // projectRef is a project defined in the build file. This would be `root` when the library
+        // is small. In Spark, projectRefs would be mllib, sql, streaming, etc... Anything defined
+        // as Project(...)
         visit(projectRef).join.map(_.toSet.toSeq)
       }
     }
