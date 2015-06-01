@@ -3,3 +3,4 @@
 target/
 project/target/
 *.iml
+sbt/*.jar
