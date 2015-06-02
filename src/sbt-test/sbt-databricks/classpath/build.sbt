@@ -14,8 +14,6 @@ lazy val dbcSettings: Seq[Setting[_]] = Seq(
   dbcPassword := "test"
 )
 
-dbcSettings
-
 lazy val projA = Project(
   base = file("multi-a"),
   id = "multi-a",
@@ -46,6 +44,12 @@ lazy val projB = Project(
       checkJar(everything, "multi-a_2.10-0.1.jar")
       checkJar(everything, "spark-csv_2.10-1.0.0.jar")
     }) ++ dbcSettings)
+
+// This project does not use the plugin, nor does it define dbcSettings,
+// but it should still compile successfully.
+lazy val projC = Project(
+  base = file("multi-c"),
+  id = "multi-b")
 
 def checkJar(classpath: Seq[String], jar: String): Unit = {
   if (!classpath.contains(jar)) sys.error(s"$jar not found in classpath")
