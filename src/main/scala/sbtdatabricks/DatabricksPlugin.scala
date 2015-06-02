@@ -26,9 +26,9 @@ object DatabricksPlugin extends AutoPlugin {
     val dbcListClusters = taskKey[Unit]("List all available clusters and their states.")
     val dbcRestartClusters = taskKey[Unit]("Restart the given clusters.")
 
-    val dbcApiUrl = settingKey[String]("The URL for the DB API endpoint")
-    val dbcUsername = settingKey[String]("The username for Databricks Cloud")
-    val dbcPassword = settingKey[String]("The password for Databricks Cloud")
+    val dbcApiUrl = taskKey[String]("The URL for the DB API endpoint")
+    val dbcUsername = taskKey[String]("The username for Databricks Cloud")
+    val dbcPassword = taskKey[String]("The password for Databricks Cloud")
 
     final val DBC_ALL_CLUSTERS = "ALL_CLUSTERS"
   }
@@ -184,6 +184,36 @@ object DatabricksPlugin extends AutoPlugin {
   }
 
   val baseDBCSettings: Seq[Setting[_]] = Seq(
+    dbcUsername := { 
+      sys.error(
+        """
+          |dbcUsername not defined. Please make sure to add these keys to your build:
+          |  dbcUsername := "user"
+          |  dbcPassword := "pass"
+          |  dbcApiUrl := "https://organization.cloud.databricks.com:34563/api/1.1"
+          |  See the sbt-databricks README for more info.
+        """.stripMargin)
+    },
+    dbcPassword := { 
+      sys.error(
+        """
+          |dbcPassword not defined. Please make sure to add these keys to your build:
+          |  dbcUsername := "user"
+          |  dbcPassword := "pass"
+          |  dbcApiUrl := "https://organization.cloud.databricks.com:34563/api/1.1"
+          |  See the sbt-databricks README for more info.
+        """.stripMargin)
+    },
+    dbcApiUrl := { 
+      sys.error(
+        """
+          |dbcApiUrl not defined. Please make sure to add these keys to your build:
+          |  dbcUsername := "user"
+          |  dbcPassword := "pass"
+          |  dbcApiUrl := "https://organization.cloud.databricks.com:34563/api/1.1"
+          |  See the sbt-databricks README for more info.
+        """.stripMargin)
+    },
     dbcClusters := Seq.empty[String],
     dbcRestartOnAttach := true,
     dbcLibraryPath := "/",
