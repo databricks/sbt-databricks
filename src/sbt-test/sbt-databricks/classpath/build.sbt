@@ -49,7 +49,7 @@ lazy val projB = Project(
 // but it should still compile successfully.
 lazy val projC = Project(
   base = file("multi-c"),
-  id = "multi-b")
+  id = "multi-c")
 
 def checkJar(classpath: Seq[String], jar: String): Unit = {
   if (!classpath.contains(jar)) sys.error(s"$jar not found in classpath")
