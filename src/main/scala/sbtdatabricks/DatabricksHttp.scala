@@ -20,8 +20,10 @@ import org.apache.http.message.BasicNameValuePair
 
 import sbt._
 import scala.collection.JavaConversions._
+import scala.collection.mutable.ArrayBuffer
 
 import sbtdatabricks.DatabricksPlugin.ClusterName
+import sbtdatabricks.DatabricksPlugin.autoImport.DBC_ALL_CLUSTERS
 
 /** Collection of REST calls to Databricks Cloud and related helper functions. Exposed for tests */
 class DatabricksHttp(endpoint: String, client: HttpClient, outputStream: PrintStream = System.out) {
@@ -104,23 +106,23 @@ class DatabricksHttp(endpoint: String, client: HttpClient, outputStream: PrintSt
    * @param lib the libraries that will be uploaded
    * @param clusters all clusters accessible by the user
    * @param onClusters List of clusters to check whether the libraries are attached to
-   * @return Whether an older version of the library is attached to the given clusters
+   * @return List of clusters of interest (supplied by dbcClusters) this library is attached to
    */
   private[sbtdatabricks] def isOldVersionAttached(
       lib: UploadedLibrary,
       clusters: Seq[Cluster],
-      onClusters: Seq[ClusterName]): Boolean = {
+      onClusters: Iterable[ClusterName]): Iterable[ClusterName] = {
     val status = getLibraryStatus(lib.id)
     val libraryClusterStatusMap = status.statuses.map(s => (s.clusterId, s.status)).toMap
-    var requiresRestart = false
+    val clusterList = new ArrayBuffer[ClusterName](onClusters.size)
     foreachCluster(onClusters, clusters) { cluster =>
         libraryClusterStatusMap.get(cluster.id).foreach { state =>
           if (state != "Detached") {
-            requiresRestart = true
+            clusterList.append(cluster.name)
           }
         }
       }
-    requiresRestart
+    clusterList.toSet
   }
 
   /**
@@ -203,10 +205,10 @@ class DatabricksHttp(endpoint: String, client: HttpClient, outputStream: PrintSt
    * @param f The function to perform on the cluster
    */
   private[sbtdatabricks] def foreachCluster(
-      onClusters: Seq[String],
+      onClusters: Iterable[String],
       allClusters: Seq[Cluster])(f: Cluster => Unit): Unit = {
-    assert(onClusters.nonEmpty, "Please specify a cluster.")
-    val hasAllClusters = onClusters.find(_ == "ALL_CLUSTERS")
+    require(onClusters.nonEmpty, "Please specify a cluster.")
+    val hasAllClusters = onClusters.find(_ == DBC_ALL_CLUSTERS)
     if (hasAllClusters.isDefined) {
       allClusters.foreach { cluster =>
         f(cluster)

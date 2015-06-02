@@ -15,7 +15,7 @@ Installation
 Just add the following line to `project/plugins.sbt`:
 
 ```
-addSbtPlugin("com.databricks" %% "sbt-databricks" % "0.1.0")
+addSbtPlugin("com.databricks" %% "sbt-databricks" % "0.1.1")
 ```
 
 Usage
@@ -25,7 +25,10 @@ There are four major commands that can be used. Please check the next section fo
 settings before running these commands.:
  - `dbcDeploy`: Uploads your Library to Databricks Cloud, attaches it to specified clusters,
   and restarts the clusters if a previous version of the library was attached. This method
-  encapsulates the following commands.
+  encapsulates the following commands. Only libraries with `SNAPSHOT` versions will be deleted
+  and re-uploaded as it is assumed that dependencies will not change very frequently. If you
+  change the version of one of your dependencies, that dependency must be deleted manually in
+  Databricks Cloud to prevent unexpected behavior.
  - `dbcUpload`: Uploads your Library to Databricks Cloud. Deletes the older version.
  - `dbcAttach`: Attaches your Library to the specified clusters.
  - `dbcRestartClusters`: Restarts the specified clusters.
