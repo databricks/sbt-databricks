@@ -51,6 +51,26 @@ lazy val projC = Project(
   base = file("multi-c"),
   id = "multi-c")
 
+// Test that dbcClasspath can be overridden to change the pushed jars.
+lazy val projD = Project(
+  base = file("multi-d"),
+  id = "multi-d",
+  settings = Seq(
+    libraryDependencies += "com.databricks" %% "spark-csv" % "1.0.0",
+    dbcClasspath := { 
+      (managedClasspath in Runtime).value.files 
+    },
+    TaskKey[Unit]("checkClasspath") := {
+      val everything = dbcClasspath.value.map(_.getName)
+      checkNotJar(everything, "multi-a_2.10-0.1.jar")
+      checkJar(everything, "spark-csv_2.10-1.0.0.jar")
+    }) ++ dbcSettings)
+
+
 def checkJar(classpath: Seq[String], jar: String): Unit = {
   if (!classpath.contains(jar)) sys.error(s"$jar not found in classpath")
+}
+
+def checkNotJar(classpath: Seq[String], jar: String): Unit = {
+  if (classpath.contains(jar)) sys.error(s"$jar not found classpath")
 }
