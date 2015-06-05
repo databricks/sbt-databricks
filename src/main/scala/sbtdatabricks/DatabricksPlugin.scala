@@ -38,6 +38,8 @@ object DatabricksPlugin extends AutoPlugin {
   // exposed for testing
   val dbcApiClient = taskKey[DatabricksHttp]("Create client to handle SSL communication.")
 
+  val dbcClasspath = taskKey[Seq[File]]("Defines the dependencies (jars) which should be uploaded.")
+
   override def requires = plugins.JvmPlugin
   override def trigger = allRequirements
 
@@ -67,12 +69,6 @@ object DatabricksPlugin extends AutoPlugin {
         }
       }
     }.flatMap(c => c)
-  }
-
-  /** Returns all the jars related to this library. */
-  lazy val dbcClasspath = Def.task {
-    (dbcLocalProjects.value ++ (managedClasspath in Runtime).value.files
-      ).filterNot(_.getName startsWith "scala-")
   }
 
   /**
@@ -219,6 +215,11 @@ object DatabricksPlugin extends AutoPlugin {
     dbcLibraryPath := "/",
     dbcApiClient := DatabricksHttp(dbcApiUrl.value, dbcUsername.value, dbcPassword.value),
     dbcFetchClusters := (dbcApiClient.value.fetchClusters, true),
+    // Returns all the jars related to this library.
+    dbcClasspath := {
+      (dbcLocalProjects.value ++ (managedClasspath in Runtime).value.files)
+        .filterNot(_.getName startsWith "scala-")
+    },
     dbcRestartClusters := {
       val onClusters = dbcClusterSet.value
       val (allClusters, _) = dbcFetchClusters.value
