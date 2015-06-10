@@ -28,7 +28,6 @@ object DatabricksPlugin extends AutoPlugin {
     MutMultiMap[LibraryName, LibraryListResult]
 
   object autoImport {
-
     val dbcUpload = taskKey[(Seq[UploadedLibrary], Seq[UploadedLibrary])](
       "Upload your jar to Databricks Cloud as a Library.")
     val dbcAttach = taskKey[Unit]("Attach your library to a cluster. Restart cluster if " +
@@ -42,12 +41,20 @@ object DatabricksPlugin extends AutoPlugin {
     val dbcLibraryPath = settingKey[String]("Where in the workspace to add the libraries.")
     val dbcListClusters = taskKey[Unit]("List all available clusters and their states.")
     val dbcRestartClusters = taskKey[Unit]("Restart the given clusters.")
-
+    val dbcExecuteCommand = taskKey[Seq[CommandStatus]]("Execute a command on a particular cluster")
+    val dbcCommandFile = taskKey[File]("Location of file containing the command to be executed")
+    val dbcExecutionLanguage =
+      taskKey[DBCExecutionLanguage]("""Which language is to be used when executing a command""")
     val dbcApiUrl = taskKey[String]("The URL for the DB API endpoint")
     val dbcUsername = taskKey[String]("The username for Databricks Cloud")
     val dbcPassword = taskKey[String]("The password for Databricks Cloud")
 
     final val DBC_ALL_CLUSTERS = "ALL_CLUSTERS"
+
+    sealed trait DBCExecutionLanguage { val is: String }
+    case object DBCScala extends DBCExecutionLanguage { override val is = "scala" }
+    case object DBCPython extends DBCExecutionLanguage { override val is = "python" }
+    case object DBCSQL extends DBCExecutionLanguage { override val is = "sql" }
   }
 
   import autoImport._
@@ -199,6 +206,70 @@ object DatabricksPlugin extends AutoPlugin {
     }
   }
 
+  private lazy val executeCommandImpl: Def.Initialize[Task[Seq[CommandStatus]]] = Def.task {
+    val client = dbcApiClient.value
+    val language = dbcExecutionLanguage.value
+    val onClusters = dbcClusters.value
+    val (allClusters, _) = dbcFetchClusters.value
+    val commandFile = dbcCommandFile.value
+    val commandStatuses = Seq.empty[CommandStatus]
+
+    @annotation.tailrec
+    def onContextCompletion(contextId: ContextId, cluster: Cluster) : Option[ContextId] = {
+      val contextStatus = client.checkContext(contextId, cluster)
+      contextStatus.status match {
+        case DBCContextRunning.status => Some(contextId)
+        case DBCContextError.status =>
+          client.destroyContext(contextId, cluster)
+          None
+        case _ =>
+          Thread sleep 500
+          onContextCompletion(contextId, cluster)
+      }
+    }
+
+    @annotation.tailrec
+    def onCommandCompletion(
+        cluster: Cluster,
+        contextId: ContextId,
+        commandId: CommandId) : Option[CommandId] = {
+      val commandStatus = client.checkCommand(cluster, contextId, commandId)
+      commandStatus.status match {
+        case DBCCommandFinished.status =>
+          commandStatuses :+ commandStatus
+          Some(commandId)
+        case DBCCommandError.status =>
+          client.cancelCommand(cluster, contextId, commandId)
+          client.destroyContext(contextId, cluster)
+          None
+        case _ =>
+          Thread sleep 3000
+          onCommandCompletion(cluster, contextId, commandId)
+      }
+    }
+
+    if (!commandFile.exists) {
+      throw new java.io.FileNotFoundException("The dbcCommandFile provided does not exist!!")
+    }
+
+    client.foreachCluster(onClusters, allClusters) { confirmedCluster =>
+      val contextId = onContextCompletion(
+        client.createContext(language, confirmedCluster),
+        confirmedCluster)
+
+      contextId.foreach { cId =>
+        val commandId = onCommandCompletion(
+          confirmedCluster,
+          cId,
+          client.executeCommand(language, confirmedCluster, cId, commandFile))
+        if (commandId.isDefined) {
+          client.destroyContext(cId, confirmedCluster)
+        }
+      }
+    }
+    commandStatuses
+  }
+
   val baseDBCSettings: Seq[Setting[_]] = Seq(
     dbcUsername := {
       sys.error(
@@ -227,6 +298,22 @@ object DatabricksPlugin extends AutoPlugin {
           |  dbcUsername := "user"
           |  dbcPassword := "pass"
           |  dbcApiUrl := "https://organization.cloud.databricks.com:34563/api/1.1"
+          |  See the sbt-databricks README for more info.
+        """.stripMargin)
+    },
+    dbcExecutionLanguage := {
+      sys.error(
+        """
+          |dbcExecutionLanguage not defined. Please make sure to add this key
+          |  to your build when using dbcExecuteCommand
+          |  See the sbt-databricks README for more info.
+        """.stripMargin)
+    },
+    dbcCommandFile := {
+      sys.error(
+        """
+          |dbcCommandFile not defined. Please make sure to add this key
+          |  to your build when using dbcExecuteCommand
           |  See the sbt-databricks README for more info.
         """.stripMargin)
     },
@@ -268,7 +355,8 @@ object DatabricksPlugin extends AutoPlugin {
         Def.task(throw new RuntimeException("Wrong ordering of methods"))
       }
     },
-    dbcDeploy := deployImpl.value
+    dbcDeploy := deployImpl.value,
+    dbcExecuteCommand := executeCommandImpl.value
   )
 
   override lazy val projectSettings: Seq[Setting[_]] = baseDBCSettings
@@ -297,3 +385,41 @@ case class LibraryStatus(
     attachAllClusters: Boolean,
     statuses: List[LibraryClusterStatus])
 case class LibraryClusterStatus(clusterId: String, status: String)
+case class ContextId(id: String)
+case class ContextStatus(status: String, id: String) {
+  override def toString: String = {
+    status match {
+      case DBCContextError.status =>
+        s"An error occurred within execution context '$id'"
+      case _ =>
+        s"The status of the execution context is '$status'"
+    }
+  }
+}
+case class CommandId(id: String)
+// This handles only text results - not table results - adjust
+case class CommandResults(
+    resultType: String,
+    data: Option[String] = None,
+    cause: Option[String] = None) {
+  override def toString: String = {
+    resultType match {
+      case "error" =>
+        s"An error occurred during execution with the following cause '${cause.get}'"
+      case _ =>
+        s"The following results were returned:\n ${data.get}"
+    }
+  }
+}
+case class CommandStatus(status: String, id: String, results: CommandResults) {
+  override def toString: String = {
+    status match {
+      case DBCCommandError.status =>
+        s"An error occurred within command '$id'"
+      case DBCCommandFinished.status =>
+        results.toString
+      case _ =>
+        s"The status of this command is '$status'"
+    }
+  }
+}

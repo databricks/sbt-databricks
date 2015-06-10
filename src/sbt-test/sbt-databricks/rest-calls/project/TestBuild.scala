@@ -428,6 +428,108 @@ object TestBuild extends Build {
   lazy val test13 = Project(id = "deployAllClusters", base = file("13"),
     settings = dbcSettings ++ deployAllClustersTest)
 
+  def executeCommandSuccessful: Seq[Setting[_]] = {
+    val contextId = ContextId("1")
+    val contextIdStr = mapper.writeValueAsString(contextId)
+    val contextStatusPending = ContextStatus("Pending", "1")
+    val contextStatusPendingStr = mapper.writeValueAsString(contextStatusPending)
+    val contextStatusRunning = ContextStatus("Running", "1")
+    val contextStatusRunningStr = mapper.writeValueAsString(contextStatusRunning)
+    val commandId = CommandId("1234")
+    val commandIdStr = mapper.writeValueAsString(commandId)
+    val commandStatusRunning = CommandStatus("Running", "1234", null)
+    val commandStatusRunningStr = mapper.writeValueAsString(commandStatusRunning)
+    val commandResults = CommandResults(resultType = "text", data = Some("{Job ran ok!!}"))
+    val commandStatusFinished = CommandStatus("Finished", "1234", commandResults)
+    val commandStatusFinishedStr = mapper.writeValueAsString(commandStatusFinished)
+    val clusterList = mapper.writeValueAsString(exampleClusters)
+
+    val outputFile = file("14") / "output.txt"
+    Seq(
+      dbcApiClient := mockClient(
+        /* Work flow:
+        1- Request execution context
+        2- Receive pending response for execution context
+        3- Receive execution context
+        4- Issue command - receive command id
+        5- Receive command running response
+        6- Command finishes
+        7- Destroy context
+        */
+        Seq(clusterList,
+            contextIdStr,
+            contextStatusPendingStr,
+            contextStatusRunningStr,
+            commandIdStr,
+            commandStatusRunningStr,
+            commandStatusFinishedStr,
+            contextIdStr),
+        outputFile),
+      dbcExecutionLanguage := DBCScala,
+      dbcCommandFile := new File("test"),
+      dbcClusters += "a",
+      name := "test14",
+      TaskKey[Unit]("test") := {
+        dbcExecuteCommand.value
+        val out = Source.fromFile(outputFile).getLines().toSeq
+        if (out.length != 12) sys.error("Wrong number of messages printed.")
+        if (!out(2).contains("Pending")) sys.error("Pending context message not printed")
+        if (!out(4).contains("Running")) sys.error("Running context message not printed")
+        if (!out(7).contains("Running")) sys.error("Running command message not printed")
+        if (!out(10).contains("Job ran ok")) sys.error("Data from command completion not printed")
+      }
+    )
+  }
+
+  lazy val test14 = Project(id = "executeCommandSuccessful", base = file("14"),
+    settings = dbcSettings ++ executeCommandSuccessful)
+
+  def executeCommandFailure: Seq[Setting[_]] = {
+    val contextId = ContextId("1")
+    val contextIdStr = mapper.writeValueAsString(contextId)
+    val contextStatusRunning = ContextStatus("Running", "1")
+    val contextStatusRunningStr = mapper.writeValueAsString(contextStatusRunning)
+    val commandId = CommandId("1234")
+    val commandIdStr = mapper.writeValueAsString(commandId)
+    val commandStatusError = CommandStatus("Error", "1234", null)
+    val commandStatusErrorStr = mapper.writeValueAsString(commandStatusError)
+    val clusterList = mapper.writeValueAsString(exampleClusters)
+
+    val outputFile = file("15") / "output.txt"
+    Seq(
+      dbcApiClient := mockClient(
+        /* Work flow:
+        1- Request execution context
+        2- Receive execution context
+        3- Issue command - receive command id
+        4- Receive command error response
+        6- Command terminated - receive command id
+        7- Destroy context*/
+        Seq(clusterList,
+            contextIdStr,
+            contextStatusRunningStr,
+            commandIdStr,
+            commandStatusErrorStr,
+            commandIdStr,
+            contextIdStr),
+        outputFile),
+      dbcExecutionLanguage := DBCScala,
+      dbcCommandFile := new File("test"),
+      dbcClusters += "a",
+      name := "test15",
+      TaskKey[Unit]("test") := {
+        dbcExecuteCommand.value
+        val out = Source.fromFile(outputFile).getLines().toSeq
+        if (out.length != 8) sys.error("Wrong number of messages printed.")
+        if (!out(2).contains("Running")) sys.error("Running context message not printed")
+        if (!out(5).contains("An error")) sys.error("Command with error message not printed")
+      }
+    )
+  }
+
+  lazy val test15 = Project(id = "executeCommandFailure", base = file("15"),
+    settings = dbcSettings ++ executeCommandFailure)
+
   def mockClient(responses: Seq[String], file: File): DatabricksHttp = {
     val client = mmock[HttpClient]
     val mocks = responses.map { res =>

@@ -40,6 +40,7 @@ import scala.collection.mutable.ArrayBuffer
 
 import sbtdatabricks.DatabricksPlugin.ClusterName
 import sbtdatabricks.DatabricksPlugin.autoImport.DBC_ALL_CLUSTERS
+import sbtdatabricks.DatabricksPlugin.autoImport.{DBCExecutionLanguage, DBCScala, DBCPython, DBCSQL}
 
 /** Collection of REST calls to Databricks Cloud and related helper functions. Exposed for tests */
 class DatabricksHttp(endpoint: String, client: HttpClient, outputStream: PrintStream = System.out) {
@@ -155,6 +156,156 @@ class DatabricksHttp(endpoint: String, client: HttpClient, outputStream: PrintSt
     // sure that the function returned a value and the future operations of `deploy` depend on
     // this method
     true
+  }
+
+  /**
+   * Create an execution context
+   * @param language the relevant coding language
+   * @param cluster the relevant cluster within which the context will be created
+   * @return The id of the execution context
+   *
+   */
+  private[sbtdatabricks] def createContext(
+      language: DBCExecutionLanguage,
+      cluster: Cluster): ContextId = {
+    val msg = s"Creating '${language.is}' execution context on cluster '${cluster.name}'"
+    outputStream.println(msg)
+    val post = new HttpPost(endpoint + CONTEXT_CREATE)
+    val request = CreateContextRequestV1(language.is, cluster.id)
+    val form = new StringEntity(mapper.writeValueAsString(request))
+    form.setContentType("application/json")
+    post.setEntity(form)
+    val response = client.execute(post)
+    val handler = new BasicResponseHandler()
+    val responseString = handler.handleResponse(response).trim
+    mapper.readValue[ContextId](responseString)
+  }
+
+  /**
+   * Check status of an execution context
+   * @param contextId Contains the id of the execution context
+   * @param cluster the relevant cluster
+   * @return status of the execution context
+   */
+  private[sbtdatabricks] def checkContext(
+      contextId: ContextId,
+      cluster: Cluster): ContextStatus = {
+    val msg = s"Checking execution context '${contextId.id}' on cluster '${cluster.name}'"
+    outputStream.println(msg)
+    val form =
+      URLEncodedUtils.format(List(new BasicNameValuePair("clusterId", cluster.id),
+                                  new BasicNameValuePair("contextId", contextId.id)), "utf-8")
+    val request = new HttpGet(endpoint + CONTEXT_STATUS + "?" + form)
+    val response = client.execute(request)
+    val handler = new BasicResponseHandler()
+    val responseString = handler.handleResponse(response).trim
+    val contextStatus = mapper.readValue[ContextStatus](responseString)
+    outputStream.println(contextStatus.toString)
+    contextStatus
+  }
+
+  /**
+   * Destroy an execution context
+   * @param contextId Contains the id of the execution context
+   * @param cluster the relevant cluster
+   * @return the id of the execution context
+   */
+  private[sbtdatabricks] def destroyContext(
+      contextId: ContextId,
+      cluster: Cluster): ContextId = {
+    val msg = s"Terminating execution context '${contextId.id}' on cluster '${cluster.name}'"
+    outputStream.println(msg)
+    val post = new HttpPost(endpoint + CONTEXT_DESTROY)
+    val request = DestroyContextRequestV1(cluster.id, contextId.id)
+    val form = new StringEntity(mapper.writeValueAsString(request))
+    form.setContentType("application/json")
+    post.setEntity(form)
+    val response = client.execute(post)
+    val handler = new BasicResponseHandler()
+    val responseString = handler.handleResponse(response).trim
+    mapper.readValue[ContextId](responseString)
+  }
+
+
+  /**
+   * Issue and execute a command
+   * @param language the relevant coding language
+   * @param cluster the relevant cluster within which the context will be created
+   * @param contextId The id of the execution context
+   * @param command The code to be executed on the cluster
+   * @return The id of the command
+   *
+   */
+  private[sbtdatabricks] def executeCommand(
+      language: DBCExecutionLanguage,
+      cluster: Cluster,
+      contextId: ContextId,
+      commandFile: File): CommandId = {
+    outputStream.println(s"Executing '${language.is}' command on cluster '${cluster.name}'")
+    val post = new HttpPost(endpoint + COMMAND_EXECUTE)
+    val entity = new MultipartEntity()
+
+    entity.addPart("language", new StringBody(language.is))
+    entity.addPart("clusterId", new StringBody(cluster.id))
+    entity.addPart("contextId", new StringBody(contextId.id))
+    entity.addPart("command", new FileBody(commandFile))
+    post.setEntity(entity)
+
+    val response = client.execute(post)
+    val handler = new BasicResponseHandler()
+    val responseString = handler.handleResponse(response).trim
+    mapper.readValue[CommandId](responseString)
+  }
+
+  /**
+   * Check the status of a command
+   * @param cluster the relevant cluster within which the context will be created
+   * @param contextId The id of the execution context
+   * @param command The code to be executed on the cluster
+   * @return The status of the command
+   *
+   */
+  private[sbtdatabricks] def checkCommand(
+      cluster: Cluster,
+      contextId: ContextId,
+      commandId: CommandId): CommandStatus = {
+    val msg = s"Checking status of command '${commandId.id}' on cluster '${cluster.name}'"
+    outputStream.println(msg)
+    val form =
+      URLEncodedUtils.format(List(new BasicNameValuePair("clusterId", cluster.id),
+                                  new BasicNameValuePair("contextId", contextId.id),
+                                  new BasicNameValuePair("commandId", commandId.id)), "utf-8")
+    val request = new HttpGet(endpoint + COMMAND_STATUS + "?" + form)
+    val response = client.execute(request)
+    val handler = new BasicResponseHandler()
+    val responseString = handler.handleResponse(response).trim
+    val commandStatus = mapper.readValue[CommandStatus](responseString)
+    outputStream.println(commandStatus.toString)
+    commandStatus
+  }
+
+  /**
+   * Cancel a command
+   * @param cluster the relevant cluster within which the context will be created
+   * @param contextId The id of the execution context
+   * @param command The code to be executed on the cluster
+   * @return The id of the command
+   *
+   */
+  private[sbtdatabricks] def cancelCommand(
+      cluster: Cluster,
+      contextId: ContextId,
+      commandId: CommandId): CommandId = {
+    outputStream.println(s"Cancelling command '${commandId.id}' on cluster '${cluster.name}'")
+    val post = new HttpPost(endpoint + COMMAND_CANCEL)
+    val request = CancelCommandRequestV1(cluster.id, contextId.id, commandId.id)
+    val form = new StringEntity(mapper.writeValueAsString(request))
+    form.setContentType("application/json")
+    post.setEntity(form)
+    val response = client.execute(post)
+    val handler = new BasicResponseHandler()
+    val responseString = handler.handleResponse(response).trim
+    mapper.readValue[CommandId](responseString)
   }
 
   /**

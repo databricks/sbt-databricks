@@ -13,3 +13,5 @@
 -> serverError/test
 > deployWithoutRestart/test
 > deployAllClusters/test
+> executeCommandSuccessful/test
+> executeCommandFailure/test
