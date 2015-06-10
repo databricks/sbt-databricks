@@ -1,3 +1,19 @@
+/*
+ * Copyright 2015 Databricks
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package sbtdatabricks
 
 import sbt._
@@ -8,20 +24,21 @@ object DatabricksPlugin extends AutoPlugin {
 
   type LibraryName = String
   type ClusterName = String
-  type LibraryMap = MutHashMap[LibraryName, MutSet[LibraryListResult]] with MutMultiMap[LibraryName, LibraryListResult]
+  type LibraryMap = MutHashMap[LibraryName, MutSet[LibraryListResult]] with
+    MutMultiMap[LibraryName, LibraryListResult]
 
   object autoImport {
 
     val dbcUpload = taskKey[(Seq[UploadedLibrary], Seq[UploadedLibrary])](
       "Upload your jar to Databricks Cloud as a Library.")
-    val dbcAttach = taskKey[Unit]("Attach your library to a cluster. Restart cluster if dbcRestartOnAttach is " +
-      "true, and if necessary.")
-    val dbcDeploy = taskKey[Unit]("Upload your library to Databricks Cloud and attach it to clusters. Performs " +
-      "dbcUpload and dbcAttach together.")
-    val dbcClusters = settingKey[Seq[String]]("List of clusters to attach project to. To attach to all clusters, " +
-      "set this as 'ALL_CLUSTERS'.")
-    val dbcRestartOnAttach = settingKey[Boolean]("Whether to restart the cluster when a new version of" +
-      " your library is attached.")
+    val dbcAttach = taskKey[Unit]("Attach your library to a cluster. Restart cluster if " +
+      "dbcRestartOnAttach is true, and if necessary.")
+    val dbcDeploy = taskKey[Unit]("Upload your library to Databricks Cloud and attach it to " +
+      "clusters. Performs dbcUpload and dbcAttach together.")
+    val dbcClusters = settingKey[Seq[String]]("List of clusters to attach project to. To attach " +
+      "to all clusters, set this as 'ALL_CLUSTERS'.")
+    val dbcRestartOnAttach = settingKey[Boolean]("Whether to restart the cluster when a new " +
+      "version of your library is attached.")
     val dbcLibraryPath = settingKey[String]("Where in the workspace to add the libraries.")
     val dbcListClusters = taskKey[Unit]("List all available clusters and their states.")
     val dbcRestartClusters = taskKey[Unit]("Restart the given clusters.")
@@ -45,7 +62,8 @@ object DatabricksPlugin extends AutoPlugin {
 
   lazy val dbcFetchLibraries: Def.Initialize[Task[LibraryMap]] = Def.task {
     val libs = dbcApiClient.value.fetchLibraries
-    val m = new MutHashMap[String, MutSet[LibraryListResult]] with MutMultiMap[String, LibraryListResult]
+    val m =
+      new MutHashMap[String, MutSet[LibraryListResult]] with MutMultiMap[String, LibraryListResult]
     libs.foreach { lib =>
       m.addBinding(lib.name, lib)
     }
@@ -85,7 +103,8 @@ object DatabricksPlugin extends AutoPlugin {
         def visit(p: ProjectRef): Seq[Task[java.io.File]] = {
           val extracted = Project.extract(currentState)
           val data = extracted.structure.data
-          val depProject = (thisProject in p).get(data).getOrElse(sys.error("Invalid project: " + p))
+          val depProject =
+            (thisProject in p).get(data).getOrElse(sys.error("Invalid project: " + p))
           val jarFile = (Keys.`package` in Runtime in p).get(data).get
           jarFile +: depProject.dependencies.map {
             case ResolvedClasspathDependency(dep, confMapping) => dep
@@ -127,13 +146,14 @@ object DatabricksPlugin extends AutoPlugin {
 
   // Delete old SNAPSHOT versions in the Classpath on DBC, and upload all jars that don't exist.
   // Returns the deleted and uploaded libraries.
-  private lazy val uploadImpl: Def.Initialize[Task[(Seq[UploadedLibrary], Seq[UploadedLibrary])]] = Def.task {
-    val client = dbcApiClient.value
-    val folder = dbcLibraryPath.value
-    val existing = existingLibraries.value
-    val classpath = dbcClasspath.value
-    uploadImpl1(client, folder, classpath, existing)
-  }
+  private lazy val uploadImpl: Def.Initialize[Task[(Seq[UploadedLibrary], Seq[UploadedLibrary])]] =
+    Def.task {
+      val client = dbcApiClient.value
+      val folder = dbcLibraryPath.value
+      val existing = existingLibraries.value
+      val classpath = dbcClasspath.value
+      uploadImpl1(client, folder, classpath, existing)
+    }
 
   private lazy val deployImpl: Def.Initialize[Task[Unit]] = Def.taskDyn {
     val client = dbcApiClient.value
@@ -145,7 +165,7 @@ object DatabricksPlugin extends AutoPlugin {
         var count = 0
         var clustersToRestart = Set.empty[String]
         // a tuple of the library and the set of clusters to attach it to
-        val requiresAttachFromExisting: Seq[(UploadedLibrary, Set[String])] = oldVersions.flatMap { oldLib =>
+        val requiresAttachFromExisting = oldVersions.flatMap { oldLib =>
           count += 1
           val attachedTo = client.isOldVersionAttached(oldLib, allClusters, onClusters)
           if (oldLib.name.contains("-SNAPSHOT")) {
@@ -180,7 +200,7 @@ object DatabricksPlugin extends AutoPlugin {
   }
 
   val baseDBCSettings: Seq[Setting[_]] = Seq(
-    dbcUsername := { 
+    dbcUsername := {
       sys.error(
         """
           |dbcUsername not defined. Please make sure to add these keys to your build:
@@ -190,7 +210,7 @@ object DatabricksPlugin extends AutoPlugin {
           |  See the sbt-databricks README for more info.
         """.stripMargin)
     },
-    dbcPassword := { 
+    dbcPassword := {
       sys.error(
         """
           |dbcPassword not defined. Please make sure to add these keys to your build:
@@ -200,7 +220,7 @@ object DatabricksPlugin extends AutoPlugin {
           |  See the sbt-databricks README for more info.
         """.stripMargin)
     },
-    dbcApiUrl := { 
+    dbcApiUrl := {
       sys.error(
         """
           |dbcApiUrl not defined. Please make sure to add these keys to your build:

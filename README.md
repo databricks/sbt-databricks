@@ -71,3 +71,8 @@ dev/run-tests
 ```
 
 If the very last line starts with `[success]`, then that means that the tests have passed.
+
+Run scalastyle checks using:
+```
+dev/lint
+```
