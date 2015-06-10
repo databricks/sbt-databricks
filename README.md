@@ -1,4 +1,4 @@
-sbt-databricks
+sbt-databricks [![Build Status](https://travis-ci.org/databricks/sbt-databricks.svg)](http://travis-ci.org/databricks/sbt-databricks)
 --------------
 
 sbt plugin to deploy your projects to Databricks Cloud!
