@@ -14,20 +14,35 @@
  * limitations under the License.
  */
 
-package sbtdatabricks
+package sbtdatabricks.util
 
-private[sbtdatabricks] case class CreateContextRequestV1(
-  language: String,
-  clusterId: String
-)
+// scalastyle:off
+private[sbtdatabricks] object requests {
+// scalastyle:on
 
-private[sbtdatabricks] case class DestroyContextRequestV1(
-  clusterId: String,
-  contextId: String
-)
+  sealed trait DBApiRequest
 
-private[sbtdatabricks] case class CancelCommandRequestV1(
-  clusterId: String,
-  contextId: String,
-  commandId: String
-)
+  /** Request sent to create a Spark Context */
+  private[sbtdatabricks] case class CreateContextRequestV1(
+      language: String,
+      clusterId: String) extends DBApiRequest
+
+  /** Request sent to destroy a Spark Context */
+  private[sbtdatabricks] case class DestroyContextRequestV1(
+      clusterId: String,
+      contextId: String) extends DBApiRequest
+
+  /** Request sent to cancel a command */
+  private[sbtdatabricks] case class CancelCommandRequestV1(
+      clusterId: String,
+      contextId: String,
+      commandId: String) extends DBApiRequest
+
+  /** Request sent to attach a library to a cluster */
+  private[sbtdatabricks] case class LibraryAttachRequestV1(
+      libraryId: String,
+      clusterId: String) extends DBApiRequest
+
+  /** Request sent to restart a cluster */
+  private[sbtdatabricks] case class RestartClusterRequestV1(clusterId: String) extends DBApiRequest
+}

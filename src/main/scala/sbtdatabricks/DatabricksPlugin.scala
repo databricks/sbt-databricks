@@ -48,21 +48,20 @@ object DatabricksPlugin extends AutoPlugin {
     val dbcApiUrl = taskKey[String]("The URL for the DB API endpoint")
     val dbcUsername = taskKey[String]("The username for Databricks Cloud")
     val dbcPassword = taskKey[String]("The password for Databricks Cloud")
+    val dbcClasspath = taskKey[Seq[File]]("Defines the dependencies (jars) " +
+      "which should be uploaded.")
 
     final val DBC_ALL_CLUSTERS = "ALL_CLUSTERS"
 
-    sealed trait DBCExecutionLanguage { val is: String }
-    case object DBCScala extends DBCExecutionLanguage { override val is = "scala" }
-    case object DBCPython extends DBCExecutionLanguage { override val is = "python" }
-    case object DBCSQL extends DBCExecutionLanguage { override val is = "sql" }
+    case object DBCScala extends DBCExecutionLanguage { override def is = "scala" }
+    case object DBCPython extends DBCExecutionLanguage { override def is = "python" }
+    case object DBCSQL extends DBCExecutionLanguage { override def is = "sql" }
   }
 
   import autoImport._
 
   // exposed for testing
   val dbcApiClient = taskKey[DatabricksHttp]("Create client to handle SSL communication.")
-
-  val dbcClasspath = taskKey[Seq[File]]("Defines the dependencies (jars) which should be uploaded.")
 
   override def requires = plugins.JvmPlugin
   override def trigger = allRequirements
@@ -423,3 +422,5 @@ case class CommandStatus(status: String, id: String, results: CommandResults) {
     }
   }
 }
+
+sealed trait DBCExecutionLanguage { def is: String }
