@@ -25,9 +25,9 @@ addSbtPlugin("com.databricks" %% "sbt-databricks" % "0.1.2")
 
 1. Add the following line to `~/.sbt/0.13/plugins/build.sbt`:
 
-```
-addSbtPlugin("com.databricks" %% "sbt-databricks" % "0.1.2")
-```
+    ```
+    addSbtPlugin("com.databricks" %% "sbt-databricks" % "0.1.2")
+    ```
 
 2. Set the settings defined [here](#settings) in `~/.sbt/0.13/databricks.sbt`.
 
@@ -73,7 +73,7 @@ $ sbt
 Other helpful commands are:
  - `dbcListClusters`: View the states of available clusters.
 
-<a name="settings">### Settings</a>
+### <a name="settings">Settings</a>
 
 There are a few configuration settings that need to be made in the build file.
 Please set the following parameters according to your setup:
@@ -116,54 +116,54 @@ Here are some SBT tips and tricks to improve your experience with sbt-databricks
 1. I have a multi-project build. I don't want to upload the entire project to Databricks Cloud.
 What should I do?
 
-In a multi-project build, you may run an SBT task (such as dbcDeploy, dbcUpload, etc...) just for
-that project by [*scoping*](http://www.scala-sbt.org/0.13/docs/Tasks.html#Task+Scope) the task.
-You may *scope* the task by using the project id before that task.
+    In a multi-project build, you may run an SBT task (such as dbcDeploy, dbcUpload, etc...) just for
+    that project by [*scoping*](http://www.scala-sbt.org/0.13/docs/Tasks.html#Task+Scope) the task.
+    You may *scope* the task by using the project id before that task.
 
-For example, assume we have a project with sub-projects `core`, `ml`, and `sql`. Assume `ml` depends
-on `core` and `sql`, `sql` only depends on `core` and `core` doesn't depend on anything. Here is
-what would happen for the following commands:
+    For example, assume we have a project with sub-projects `core`, `ml`, and `sql`. Assume `ml` depends
+    on `core` and `sql`, `sql` only depends on `core` and `core` doesn't depend on anything. Here is
+    what would happen for the following commands:
 
-```scala
-> dbcUpload          // Uploads core, ml, and sql
-> core/dbcUpload     // Uploads only core
-> sql/dbcUpload      // Uploads core and sql
-> ml/dbcUpload       // Uploads core, ml, and sql
-```
+    ```scala
+    > dbcUpload          // Uploads core, ml, and sql
+    > core/dbcUpload     // Uploads only core
+    > sql/dbcUpload      // Uploads core and sql
+    > ml/dbcUpload       // Uploads core, ml, and sql
+    ```
 
 2. I want to pass parameters to `dbcDeploy`. For example, in my build file `dbcClusters` is set as
 `clusterA` but I want to deploy to `clusterB` once in a while. What should I do?
 
-In the SBT console, one way of overriding settings for your session is by using the `set` command.
-Using the example above.
+    In the SBT console, one way of overriding settings for your session is by using the `set` command.
+    Using the example above.
 
-```scala
-> core/dbcDeploy   // Deploys core to clusterA (clusterA was set inside the build file)
-> set dbcClusters := Seq("clusterB")  // change cluster to clusterB
-> ml/dbcDeploy     // Deploys core, sql, and ml to clusterB
-```
+    ```scala
+    > core/dbcDeploy   // Deploys core to clusterA (clusterA was set inside the build file)
+    > set dbcClusters := Seq("clusterB")  // change cluster to clusterB
+    > ml/dbcDeploy     // Deploys core, sql, and ml to clusterB
+    ```
 
 3. I want to upload an assembly jar rather than tens of individual jars. How can I do that?
 
-You may override `dbcClasspath` such as:
+    You may override `dbcClasspath` such as:
 
-```scala
-dbcClasspath := Seq(assembly.value)
-```
+    ```scala
+    dbcClasspath := Seq(assembly.value)
+    ```
 
-... in your build file, (or using set on the console) in order to upload a single fat jar instead
-of many individual ones. Beware of dependency conflicts\!
+    ... in your build file, (or using set on the console) in order to upload a single fat jar instead
+    of many individual ones. Beware of dependency conflicts\!
 
 4. Hey, I followed \#3, but I'm still uploading `core`, and `sql` individually after`sql/dbcUpload`.
  What's going on\!?
 
-Remember scoping tasks? You will need to scope both `dbcClasspath` and `assembly` as follows:
+    Remember scoping tasks? You will need to scope both `dbcClasspath` and `assembly` as follows:
 
-```scala
-dbcClasspath in sql := Seq((assembly in sql).value)
-```
+    ```scala
+    dbcClasspath in sql := Seq((assembly in sql).value)
+    ```
 
-Then `sql/dbcUpload` should upload an assembly jar of `core` and `sql`.
+    Then `sql/dbcUpload` should upload an assembly jar of `core` and `sql`.
 
 Tests
 =====
