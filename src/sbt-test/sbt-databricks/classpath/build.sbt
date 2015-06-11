@@ -1,5 +1,3 @@
-import sbtdatabricks.DatabricksPlugin.dbcClasspath
-
 version := "0.1"
 
 scalaVersion := "2.10.4"
@@ -57,8 +55,8 @@ lazy val projD = Project(
   id = "multi-d",
   settings = Seq(
     libraryDependencies += "com.databricks" %% "spark-csv" % "1.0.0",
-    dbcClasspath := { 
-      (managedClasspath in Runtime).value.files 
+    dbcClasspath := {
+      (managedClasspath in Runtime).value.files
     },
     TaskKey[Unit]("checkClasspath") := {
       val everything = dbcClasspath.value.map(_.getName)
