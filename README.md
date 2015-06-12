@@ -44,6 +44,36 @@ addSbtPlugin("com.databricks" %% "sbt-databricks" % "0.1.5")
 Usage
 =====
 
+### Cluster Controls
+
+There are three primary cluster related actions: Create, Resize and Delete.
+
+Creating a cluster
+```scala
+dbcCreateCluster // Attempts to create a cluster on DBC
+// The following parameters must be set when attempting to create a cluster
+dbcNumWorkerContainers := // Integer: The desired size of the cluster (in worker containers). 
+dbcSpotInstance := // Boolean for choosing whether to use Spot or On-Demand instances
+dbcSparkVersion := // String: The Spark version to be used e.g. "1.6.x"
+dbcZoneId := // String: AWS zone e.g. ap-southeast-2
+dbcClusters := // See notes below regarding this parameter
+```
+
+Resizing a cluster
+```scala
+dbcResizeCluster // Attempts to resize a cluster on DBC
+// The following parameters must be set when attempting to resize a cluster
+dbcNumWorkerContainers := // Integer: The desired size of the cluster (in worker containers). 
+dbcClusters := // See notes below regarding this parameter
+```
+
+Deleting a cluster
+```scala
+dbcDeleteCluster // Attempts to delete a cluster on DBC
+// The following parameters must be set when attempting to resize a cluster
+dbcClusters := // See notes below regarding this parameter
+```
+
 ### Deployment
 
 

@@ -15,3 +15,7 @@
 > deployAllClusters/test
 > executeCommandSuccessful/test
 > executeCommandFailure/test
+> createClusterFailure/test
+> createClusterSuccess/test
+> deleteClusterSuccess/test
+> resizeClusterSuccess/test

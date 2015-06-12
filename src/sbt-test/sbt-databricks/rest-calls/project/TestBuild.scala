@@ -38,12 +38,12 @@ object TestBuild extends Build {
     settings = dbcSettings)
 
   val exampleClusters = Seq(
-    Cluster("a", "1", "running", "123", "234", 2),
-    Cluster("b", "2", "running", "123", "234", 2),
-    Cluster("c", "3", "running", "123", "234", 2))
+    Cluster("a", "1", "Running", "123", "234", 2),
+    Cluster("b", "2", "Running", "123", "234", 2),
+    Cluster("c", "3", "Running", "123", "234", 2))
 
   def clusterFetchTest: Seq[Setting[_]] = {
-    val expect = Seq(Cluster("a", "1", "running", "123", "234", 2))
+    val expect = Seq(Cluster("a", "1", "Running", "123", "234", 2))
     val response = mapper.writeValueAsString(expect)
     Seq(
       dbcApiClient := mockClient(Seq(response), file("1") / "output.txt"),
@@ -136,10 +136,14 @@ object TestBuild extends Build {
     settings = dbcSettings ++ oldLibraryDeleteTest)
 
   def clusterRestartTest: Seq[Setting[_]] = {
-    val response = mapper.writeValueAsString(exampleClusters)
+    val response1 = mapper.writeValueAsString(exampleClusters)
+    val clusterA = ClusterId("1")
+    val response2 = mapper.writeValueAsString(clusterA)
+    val clusterB = ClusterId("2")
+    val response3 = mapper.writeValueAsString(clusterB)
     val outputFile = file("5") / "output.txt"
     Seq(
-      dbcApiClient := mockClient(Seq(response), outputFile),
+      dbcApiClient := mockClient(Seq(response1, response2, response3), outputFile),
       dbcClusters += "a",
       dbcClusters += "b",
       TaskKey[Unit]("test") := dbApiTest(dbcRestartClusters) { _ =>
@@ -156,10 +160,16 @@ object TestBuild extends Build {
     settings = dbcSettings ++ clusterRestartTest)
 
   def clusterRestartAllTest: Seq[Setting[_]] = {
-    val response = mapper.writeValueAsString(exampleClusters)
+    val response1 = mapper.writeValueAsString(exampleClusters)
+    val clusterA = ClusterId("1")
+    val response2 = mapper.writeValueAsString(clusterA)
+    val clusterB = ClusterId("2")
+    val response3 = mapper.writeValueAsString(clusterB)
+    val clusterC = ClusterId("3")
+    val response4 = mapper.writeValueAsString(clusterC)
     val outputFile = file("6") / "output.txt"
     Seq(
-      dbcApiClient := mockClient(Seq(response), outputFile),
+      dbcApiClient := mockClient(Seq(response1, response2, response3, response4), outputFile),
       dbcClusters += "a", // useless. There to check if we don't do cluster `a` twice
       dbcClusters += "ALL_CLUSTERS",
       TaskKey[Unit]("test") := dbApiTest(dbcRestartClusters) { _ =>
@@ -183,9 +193,13 @@ object TestBuild extends Build {
       LibraryListResult("4", "spark-csv_2.10-1.0.0.jar", "/"))
     val response1 = mapper.writeValueAsString(exampleClusters)
     val response2 = mapper.writeValueAsString(existingLibs)
+    val clusterA = ClusterId("1")
+    val response3 = mapper.writeValueAsString(clusterA)
+    val clusterB = ClusterId("2")
+    val response4 = mapper.writeValueAsString(clusterB)
     val outputFile = file("7") / "output.txt"
     Seq(
-      dbcApiClient := mockClient(Seq(response1, response2), outputFile),
+      dbcApiClient := mockClient(Seq(response1, response2, response3, response4), outputFile),
       dbcClusters += "a",
       dbcClusters += "b",
       name := "test7",
@@ -215,9 +229,16 @@ object TestBuild extends Build {
       LibraryListResult("4", "spark-csv_2.10-1.0.0.jar", "/"))
     val response1 = mapper.writeValueAsString(exampleClusters)
     val response2 = mapper.writeValueAsString(existingLibs)
+    val clusterA = ClusterId("1")
+    val response3 = mapper.writeValueAsString(clusterA)
+    val clusterB = ClusterId("2")
+    val response4 = mapper.writeValueAsString(clusterB)
+    val clusterC = ClusterId("3")
+    val response5 = mapper.writeValueAsString(clusterC)
+
     val outputFile = file("8") / "output.txt"
     Seq(
-      dbcApiClient := mockClient(Seq(response1, response2), outputFile),
+      dbcApiClient := mockClient(Seq(response1, response2, response3, response4, response5), outputFile),
       dbcClusters += "a", // useless
       dbcClusters += "ALL_CLUSTERS",
       name := "test8",
@@ -295,6 +316,10 @@ object TestBuild extends Build {
       LibraryListResult("4", "spark-csv_2.10-1.0.0.jar", "/def/"))
     val libraryFetch = mapper.writeValueAsString(initialLibs)
     val clusterList = mapper.writeValueAsString(exampleClusters)
+    val clusterB = ClusterId("2")
+    val clusterBResponse = mapper.writeValueAsString(clusterB)
+    val clusterC = ClusterId("3")
+    val clusterCResponse = mapper.writeValueAsString(clusterC)
     val t9Res = generateLibStatus("1", "test10_2.10-0.1-SNAPSHOT.jar")
     val csv = generateLibStatus("4", "spark-csv_2.10-1.0.0.jar")
     val commons = generateLibStatus("3", "commons-csv-1.1.jar")
@@ -311,7 +336,7 @@ object TestBuild extends Build {
         */
       dbcApiClient := mockClient(Seq(clusterList, libraryFetch,
         t9Res, csv, commons, "", // delete only the SNAPSHOT jar and re-upload it
-        uploadedLibResponse("5"), "", ""), outputFile), // first is attach, last is restart
+        uploadedLibResponse("5"), clusterBResponse, clusterCResponse, clusterBResponse, clusterCResponse), outputFile), // first is attach, last is restart
       dbcClusters += "a",
       dbcLibraryPath := "/def/",
       name := "test10",
@@ -355,6 +380,12 @@ object TestBuild extends Build {
           LibraryClusterStatus("3", "Detached")))
       mapper.writeValueAsString(libStatus)
     }
+    val clusterA = ClusterId("1")
+    val clusterAResponse = mapper.writeValueAsString(clusterA)
+    val clusterB = ClusterId("2")
+    val clusterBResponse = mapper.writeValueAsString(clusterB)
+    val clusterC = ClusterId("3")
+    val clusterCResponse = mapper.writeValueAsString(clusterC)
     val t12Res = generateLibStatus("1", "test12_2.10-0.1-SNAPSHOT.jar")
     val csv = generateLibStatus("4", "spark-csv_2.10-1.0.0.jar")
     val commons = generateLibStatus("3", "commons-csv-1.1.jar")
@@ -362,7 +393,7 @@ object TestBuild extends Build {
     Seq(
       dbcApiClient := mockClient(Seq(clusterList, libraryFetch,
         t12Res, csv, commons, "", // delete only the SNAPSHOT jar and re-upload it
-        uploadedLibResponse("5"), "", "", ""), outputFile), // three attaches, no restart
+        uploadedLibResponse("5"), clusterAResponse, clusterBResponse, clusterCResponse), outputFile), // three attaches, no restart
       dbcClusters += "b",
       dbcLibraryPath := "/def/",
       name := "test12",
@@ -524,6 +555,115 @@ object TestBuild extends Build {
 
   lazy val test15 = Project(id = "executeCommandFailure", base = file("15"),
     settings = dbcSettings ++ executeCommandFailure)
+
+  def createClusterFailure: Seq[Setting[_]] = {
+    val clusterList = mapper.writeValueAsString(exampleClusters)
+    val outputFile = file("16") / "output.txt"
+    Seq(
+      dbcApiClient := mockClient(
+        Seq(clusterList),
+        outputFile),
+      dbcClusters += "a",
+      dbcNumWorkerContainers := 10,
+      dbcSpotInstance := true,
+      dbcSparkVersion := "1.6.x",
+      dbcZoneId := "ap-southeast-2c",
+      name := "test16",
+      TaskKey[Unit]("test") := {
+        dbcCreateCluster.value
+        val out = Source.fromFile(outputFile).getLines().toSeq
+        if (out.length != 2) sys.error("Wrong number of messages printed.")
+        if (!out(0).contains("already exists")) sys.error("Cluster exists message not printed")
+      }
+    )
+  }
+
+  lazy val test16 = Project(id = "createClusterFailure", base = file("16"),
+    settings = dbcSettings ++ createClusterFailure)
+
+  def createClusterSuccess: Seq[Setting[_]] = {
+    val clusterList = mapper.writeValueAsString(exampleClusters)
+    val clusterId = ClusterId("4")
+    val clusterIdResponse = mapper.writeValueAsString(clusterId)
+    val cluster = Cluster("d", "4", "Running", "123", "234", 10)
+    val clusterResponseString = mapper.writeValueAsString(Seq(cluster))
+    val clusters = mapper.writeValueAsString(Seq(clusterId))
+    val outputFile = file("17") / "output.txt"
+    Seq(
+      dbcApiClient := mockClient(
+        Seq(clusterList, clusterIdResponse, clusterResponseString, clusters),
+        outputFile),
+      dbcClusters += "d",
+      dbcNumWorkerContainers := 10,
+      dbcSpotInstance := true,
+      dbcSparkVersion := "1.6.x",
+      dbcZoneId := "ap-southeast-2c",
+      name := "test17",
+      TaskKey[Unit]("test") := {
+        dbcCreateCluster.value
+        val out = Source.fromFile(outputFile).getLines().toSeq
+        if (out.length != 2) sys.error("Wrong number of messages printed.")
+        if (!out(0).contains("Creating cluster")) sys.error("Cluster cluster message not printed")
+      }
+    )
+  }
+
+  lazy val test17 = Project(id = "createClusterSuccess", base = file("17"),
+    settings = dbcSettings ++ createClusterSuccess)
+
+  def deleteClusterSuccess: Seq[Setting[_]] = {
+    val clusterList = mapper.writeValueAsString(exampleClusters)
+    val clusterId = ClusterId("1")
+    val clusterIdResponse = mapper.writeValueAsString(clusterId)
+    val cluster = Cluster("a", "1", "Terminated", "123", "234", 10)
+    val clusterResponseString = mapper.writeValueAsString(Seq(cluster))
+    val clusters = mapper.writeValueAsString(Seq(clusterId))
+    val outputFile = file("18") / "output.txt"
+    Seq(
+      dbcApiClient := mockClient(
+        Seq(clusterList, clusterIdResponse, clusterResponseString, clusters),
+        outputFile),
+      dbcClusters += "a",
+      name := "test18",
+      TaskKey[Unit]("test") := {
+        dbcDeleteCluster.value
+        val out = Source.fromFile(outputFile).getLines().toSeq
+        if (out.length != 2) sys.error("Wrong number of messages printed.")
+        if (!out(0).contains("Deleting cluster")) sys.error("Deleting cluster message not printed")
+      }
+    )
+  }
+
+  lazy val test18 = Project(id = "deleteClusterSuccess", base = file("18"),
+    settings = dbcSettings ++ deleteClusterSuccess)
+
+  def resizeClusterSuccess: Seq[Setting[_]] = {
+    val clusterList = mapper.writeValueAsString(exampleClusters)
+    val clusterId = ClusterId("1")
+    val clusterIdResponse = mapper.writeValueAsString(clusterId)
+    val cluster = Cluster("a", "1", "Running", "123", "234", 10)
+    val clusterResponseString = mapper.writeValueAsString(Seq(cluster))
+    val clusters = mapper.writeValueAsString(Seq(clusterId))
+    val outputFile = file("19") / "output.txt"
+    Seq(
+      dbcApiClient := mockClient(
+        Seq(clusterList, clusterIdResponse, clusterResponseString, clusters),
+        outputFile),
+      dbcClusters += "a",
+      dbcNumWorkerContainers := 10,
+      name := "test19",
+      TaskKey[Unit]("test") := {
+        dbcResizeCluster.value
+        val out = Source.fromFile(outputFile).getLines().toSeq
+        if (out.length != 2) sys.error("Wrong number of messages printed.")
+        if (!out(0).contains("Resizing cluster")) sys.error("Resizing cluster message not printed")
+      }
+    )
+  }
+
+  lazy val test19 = Project(id = "resizeClusterSuccess", base = file("19"),
+    settings = dbcSettings ++ resizeClusterSuccess)
+
 
   def mockClient(responses: Seq[String], file: File): DatabricksHttp = {
     val client = mmock[HttpClient]

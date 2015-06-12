@@ -50,6 +50,14 @@ object DatabricksPlugin extends AutoPlugin {
     val dbcPassword = taskKey[String]("The password for Databricks Cloud")
     val dbcClasspath = taskKey[Seq[File]]("Defines the dependencies (jars) " +
       "which should be uploaded.")
+    val dbcPollTime = taskKey[Long]("Interval of time in seconds between repeating a HTTP post")
+    val dbcCreateCluster = taskKey[Seq[ClusterId]]("Execute a command to create a cluster/clusters")
+    val dbcNumWorkerContainers = taskKey[Integer]("Number of worker containers for the cluster")
+    val dbcSpotInstance = taskKey[Boolean]("Dictates whether spot or on-demand instances used")
+    val dbcSparkVersion = taskKey[String]("Spark Version to be used for the cluster")
+    val dbcZoneId = taskKey[String]("The AWS zone id")
+    val dbcDeleteCluster = taskKey[Seq[ClusterId]]("Execute a command to delete a cluster/clusters")
+    val dbcResizeCluster = taskKey[Seq[ClusterId]]("Execute a command to resize a cluster/clusters")
 
     final val DBC_ALL_CLUSTERS = "ALL_CLUSTERS"
 
@@ -137,6 +145,78 @@ object DatabricksPlugin extends AutoPlugin {
     else set
   }
 
+  
+  @annotation.tailrec
+  private def onClusterStatus(
+                  client: DatabricksHttp,
+                  clusterId: String, 
+                  desiredStatus: DBCClusterStatus,
+                  pollTime: Long): Option[ClusterId] = {
+    client.getCluster(clusterId) match {
+      case Some(cluster) if cluster.status == DBCClusterError.status =>
+        sys.error("The cluster is in an Error state.")
+      case Some(cluster) if (cluster.status == DBCClusterTerminated.status ||
+          cluster.status == DBCClusterTerminating.status) &
+          desiredStatus.status == DBCClusterRunning.status =>
+        sys.error("""Cluster is either terminating or has terminated.
+            If trying to create a cluster with this name, try again later""")
+      case Some(cluster) if cluster.status == desiredStatus.status =>
+        Some(ClusterId(cluster.id))
+      case _ =>
+        Thread.sleep(pollTime)
+        onClusterStatus(client, clusterId, desiredStatus, pollTime)
+    }
+  }
+
+  private lazy val createClusterImpl: Def.Initialize[Task[Seq[ClusterId]]] = Def.task {
+    val client = dbcApiClient.value
+    val onClusters = dbcClusters.value
+    val workers = dbcNumWorkerContainers.value
+    val spot = dbcSpotInstance.value
+    val version = dbcSparkVersion.value
+    val zoneId = Option(dbcZoneId.value)
+    val pollTime = dbcPollTime.value
+
+    onClusters.flatMap { p =>
+      val clusterId = client.createCluster(p, workers, spot, version, zoneId)
+      onClusterStatus(client, clusterId.id, DBCClusterRunning, pollTime)
+    }
+  }
+
+  private lazy val deleteClusterImpl: Def.Initialize[Task[Seq[ClusterId]]] = Def.task {
+    val client = dbcApiClient.value
+    val onClusters = dbcClusters.value
+    val (allClusters, _) = dbcFetchClusters.value
+    val clusterIds = Seq.empty[ClusterId]
+    val pollTime = dbcPollTime.value
+
+    client.foreachCluster(onClusters, allClusters) { confirmedCluster =>
+      val clusterId = client.deleteCluster(confirmedCluster)
+      onClusterStatus(client, clusterId.id, DBCClusterTerminated, pollTime)
+      clusterIds :+ clusterId
+    }
+    clusterIds
+  }
+
+  // TODO: ADD check for cluster status as well - add tests.
+
+  private lazy val resizeClusterImpl: Def.Initialize[Task[Seq[ClusterId]]] = Def.task {
+    val client = dbcApiClient.value
+    val onClusters = dbcClusters.value
+    val workers = dbcNumWorkerContainers.value
+    val (allClusters, _) = dbcFetchClusters.value
+    val clusterIds = Seq.empty[ClusterId]
+    val pollTime = dbcPollTime.value
+
+    client.foreachCluster(onClusters, allClusters) { confirmedCluster =>
+      val clusterId = client.resizeCluster(confirmedCluster, workers)
+      Thread.sleep(pollTime)
+      onClusterStatus(client, clusterId.id, DBCClusterRunning, pollTime)
+      clusterIds :+ clusterId
+    }
+    clusterIds
+  }
+
   private def uploadImpl1(
       client: DatabricksHttp,
       folder: String,
@@ -156,7 +236,7 @@ object DatabricksPlugin extends AutoPlugin {
 
   // Delete old SNAPSHOT versions in the Classpath on DBC, and upload all jars that don't exist.
   // Returns the deleted and uploaded libraries.
-  private lazy val uploadImpl: Def.Initialize[Task[(Seq[UploadedLibrary], Seq[UploadedLibrary])]] =
+  private lazy val uploadImpl: Def.Initialize[Task[(Seq[UploadedLibrary], Seq[UploadedLibrary])]] = 
     Def.task {
       val client = dbcApiClient.value
       val folder = dbcLibraryPath.value
@@ -216,6 +296,7 @@ object DatabricksPlugin extends AutoPlugin {
     val (allClusters, _) = dbcFetchClusters.value
     val commandFile = dbcCommandFile.value
     val commandStatuses = Seq.empty[CommandStatus]
+    val pollTime = dbcPollTime.value
 
     @annotation.tailrec
     def onContextCompletion(contextId: ContextId, cluster: Cluster) : Option[ContextId] = {
@@ -223,10 +304,10 @@ object DatabricksPlugin extends AutoPlugin {
       contextStatus.status match {
         case DBCContextRunning.status => Some(contextId)
         case DBCContextError.status =>
-          client.destroyContext(contextId, cluster)
+          client.destroyContext(cluster, contextId)
           None
         case _ =>
-          Thread sleep 500
+          Thread.sleep(pollTime)
           onContextCompletion(contextId, cluster)
       }
     }
@@ -243,10 +324,10 @@ object DatabricksPlugin extends AutoPlugin {
           Some(commandId)
         case DBCCommandError.status =>
           client.cancelCommand(cluster, contextId, commandId)
-          client.destroyContext(contextId, cluster)
+          client.destroyContext(cluster, contextId)
           None
         case _ =>
-          Thread sleep 3000
+          Thread.sleep(pollTime)
           onCommandCompletion(cluster, contextId, commandId)
       }
     }
@@ -266,7 +347,7 @@ object DatabricksPlugin extends AutoPlugin {
           cId,
           client.executeCommand(language, confirmedCluster, cId, commandFile))
         if (commandId.isDefined) {
-          client.destroyContext(cId, confirmedCluster)
+          client.destroyContext(confirmedCluster, cId)
         }
       }
     }
@@ -320,6 +401,38 @@ object DatabricksPlugin extends AutoPlugin {
           |  See the sbt-databricks README for more info.
         """.stripMargin)
     },
+    dbcNumWorkerContainers := {
+      sys.error(
+        """
+          |dbcNumWorkerContainers not defined. Please make sure to add this key
+          |  to your build when using dbcCreateCluster or dbcResizeCluster
+          |  See the sbt-databricks README for more info.
+        """.stripMargin)
+    },
+    dbcSpotInstance := {
+      sys.error(
+        """
+          |dbcSpotInstance not defined. Please make sure to add this key
+          |  to your build when using dbcCreateCluster
+          |  See the sbt-databricks README for more info.
+        """.stripMargin)
+    },
+    dbcSparkVersion := {
+      sys.error(
+        """
+          |dbcSparkVersion not defined. Please make sure to add this key
+          |  to your build when using dbcCreateCluster
+          |  See the sbt-databricks README for more info.
+        """.stripMargin)
+    },
+    dbcZoneId := {
+      sys.error(
+        """
+          |dbcZoneId not defined. Please make sure to add this key
+          |  to your build when using dbcCreateCluster
+          |  See the sbt-databricks README for more info.
+        """.stripMargin)
+    },
     dbcClusters := Seq.empty[String],
     dbcRestartOnAttach := true,
     dbcLibraryPath := "/",
@@ -364,13 +477,19 @@ object DatabricksPlugin extends AutoPlugin {
       }
     },
     dbcDeploy := deployImpl.value,
-    dbcExecuteCommand := executeCommandImpl.value
+    dbcPollTime := 5000,
+    dbcExecuteCommand := executeCommandImpl.value,
+    dbcCreateCluster := createClusterImpl.value,
+    dbcDeleteCluster := deleteClusterImpl.value,
+    dbcResizeCluster := resizeClusterImpl.value
   )
 
   override lazy val projectSettings: Seq[Setting[_]] = baseDBCSettings
 }
 
+
 case class ErrorResponse(error: String)
+sealed trait Responses
 case class UploadedLibraryId(id: String)
 case class UploadedLibrary(name: String, jar: File, id: String)
 case class Cluster(
@@ -384,6 +503,7 @@ case class Cluster(
     s"Cluster Name: $name, Status: $status, Number of Workers: $numWorkers."
   }
 }
+case class ClusterId(id: String) extends Responses
 case class LibraryListResult(id: String, name: String, folder: String)
 case class LibraryStatus(
     id: String,
@@ -394,7 +514,8 @@ case class LibraryStatus(
     attachAllClusters: Boolean,
     statuses: List[LibraryClusterStatus])
 case class LibraryClusterStatus(clusterId: String, status: String)
-case class ContextId(id: String)
+case class LibraryId(id: String) extends Responses
+case class ContextId(id: String) extends Responses
 case class ContextStatus(status: String, id: String) {
   override def toString: String = {
     status match {
@@ -405,7 +526,8 @@ case class ContextStatus(status: String, id: String) {
     }
   }
 }
-case class CommandId(id: String)
+case class CommandId(id: String) extends Responses
+case class EmptyResponse() extends Responses
 // This handles only text results - not table results - adjust
 case class CommandResults(
     resultType: String,
