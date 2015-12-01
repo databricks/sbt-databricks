@@ -399,6 +399,8 @@ object DatabricksHttp {
 
       val builder = new SSLContextBuilder()
       builder.loadTrustMaterial(null, new TrustSelfSignedStrategy())
+      // TLSv1.2 is only available in Java 7 and above
+      builder.useProtocol("TLSv1.2")
       val sslsf = new SSLConnectionSocketFactory(builder.build())
 
       val provider = new BasicCredentialsProvider
