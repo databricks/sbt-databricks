@@ -15,7 +15,7 @@ Installation
 Just add the following line to `project/plugins.sbt`:
 
 ```
-addSbtPlugin("com.databricks" %% "sbt-databricks" % "0.1.2")
+addSbtPlugin("com.databricks" %% "sbt-databricks" % "0.1.3")
 ```
 
 #### Enable sbt-databricks for all your projects
@@ -26,7 +26,7 @@ addSbtPlugin("com.databricks" %% "sbt-databricks" % "0.1.2")
 1. Add the following line to `~/.sbt/0.13/plugins/build.sbt`:
 
     ```
-    addSbtPlugin("com.databricks" %% "sbt-databricks" % "0.1.2")
+    addSbtPlugin("com.databricks" %% "sbt-databricks" % "0.1.3")
     ```
 
 2. Set the settings defined [here](#settings) in `~/.sbt/0.13/databricks.sbt`.
