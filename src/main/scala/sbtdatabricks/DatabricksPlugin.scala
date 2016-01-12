@@ -60,6 +60,10 @@ object DatabricksPlugin extends AutoPlugin {
 
   import autoImport._
 
+  // Special all clusters representation for library attach
+  private final val INTERNAL_ALL_CLUSTERS = Cluster(DBC_ALL_CLUSTERS, "__ALL_CLUSTERS",
+    null, null, null, -1)
+
   // exposed for testing
   val dbcApiClient = taskKey[DatabricksHttp]("Create client to handle SSL communication.")
 
@@ -137,15 +141,14 @@ object DatabricksPlugin extends AutoPlugin {
       client: DatabricksHttp,
       folder: String,
       cp: Seq[File],
-      existing: Seq[UploadedLibrary],
-      attachToAll: Boolean): (Seq[UploadedLibrary], Seq[UploadedLibrary]) = {
+      existing: Seq[UploadedLibrary]): (Seq[UploadedLibrary], Seq[UploadedLibrary]) = {
     // TODO: try to figure out dependencies with changed versions
     val toDelete = existing.filter(_.name.contains("-SNAPSHOT"))
     client.deleteLibraries(toDelete)
     // Either upload the newer SNAPSHOT versions, or everything, because they don't exist yet.
       val toUpload = cp.toSet -- existing.map(_.jar) ++ toDelete.map(_.jar)
     val uploaded = toUpload.map { jar =>
-      val uploadedLib = client.uploadJar(jar.getName, jar, folder, attachToAll)
+      val uploadedLib = client.uploadJar(jar.getName, jar, folder)
       new UploadedLibrary(jar.getName, jar, uploadedLib.id)
     }.toSeq
     (uploaded, toDelete)
@@ -159,15 +162,13 @@ object DatabricksPlugin extends AutoPlugin {
       val folder = dbcLibraryPath.value
       val existing = existingLibraries.value
       val classpath = dbcClasspath.value
-      val attachToAll = dbcClusters.value.contains(DBC_ALL_CLUSTERS)
-      uploadImpl1(client, folder, classpath, existing, attachToAll)
+      uploadImpl1(client, folder, classpath, existing)
     }
 
   private lazy val deployImpl: Def.Initialize[Task[Unit]] = Def.taskDyn {
     val client = dbcApiClient.value
     val (allClusters, done) = dbcFetchClusters.value
     val onClusters = getRealClusterList(dbcClusterSet.value, allClusters)
-    val attachToAll = dbcClusters.value.contains(DBC_ALL_CLUSTERS)
     if (done) {
       Def.taskDyn {
         val oldVersions = existingLibraries.value
@@ -189,8 +190,8 @@ object DatabricksPlugin extends AutoPlugin {
         // Hack to make execution sequential
         if (count == oldVersions.length) {
           Def.task {
-            val (uploaded, _) = uploadImpl1(client, dbcLibraryPath.value, dbcClasspath.value,
-              oldVersions, attachToAll)
+            val (uploaded, _) =
+              uploadImpl1(client, dbcLibraryPath.value, dbcClasspath.value, oldVersions)
             val requiresAttach = requiresAttachFromExisting.toSet ++ uploaded.map((_, onClusters))
             for (libs <- requiresAttach) {
               client.foreachCluster(libs._2, allClusters)(client.attachToCluster(libs._1, _))
@@ -346,11 +347,16 @@ object DatabricksPlugin extends AutoPlugin {
       val client = dbcApiClient.value
       val onClusters = dbcClusterSet.value
       val (allClusters, done) = dbcFetchClusters.value
+      val attachToAll = onClusters.contains(DBC_ALL_CLUSTERS)
       if (done) {
         Def.task {
           val libraries = existingLibraries.value
           for (lib <- libraries) {
-            client.foreachCluster(onClusters, allClusters)(client.attachToCluster(lib, _))
+            if (attachToAll) {
+              client.attachToCluster(lib, INTERNAL_ALL_CLUSTERS)
+            } else {
+              client.foreachCluster(onClusters, allClusters)(client.attachToCluster(lib, _))
+            }
           }
         }
       } else {

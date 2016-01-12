@@ -43,7 +43,10 @@ import sbtdatabricks.DatabricksPlugin.autoImport.DBC_ALL_CLUSTERS
 import sbtdatabricks.util.requests._
 
 /** Collection of REST calls to Databricks Cloud and related helper functions. Exposed for tests */
-class DatabricksHttp(endpoint: String, client: HttpClient, outputStream: PrintStream = System.out) {
+class DatabricksHttp(
+    endpoint: String,
+    val client: HttpClient,
+    outputStream: PrintStream = System.out) {
 
   import DBApiEndpoints._
 
@@ -61,8 +64,7 @@ class DatabricksHttp(endpoint: String, client: HttpClient, outputStream: PrintSt
   private[sbtdatabricks] def uploadJar(
       name: String,
       file: File,
-      folder: String,
-      attachToAll: Boolean): UploadedLibraryId = {
+      folder: String): UploadedLibraryId = {
     outputStream.println(s"Uploading $name")
     val post = new HttpPost(endpoint + LIBRARY_UPLOAD)
     val entity = new MultipartEntity()
@@ -70,7 +72,6 @@ class DatabricksHttp(endpoint: String, client: HttpClient, outputStream: PrintSt
     entity.addPart("name", new StringBody(name))
     entity.addPart("libType", new StringBody("scala"))
     entity.addPart("folder", new StringBody(folder))
-    entity.addPart("attachToAllClusters", new StringBody(attachToAll.toString))
     entity.addPart("uri", new FileBody(file))
     post.setEntity(entity)
     val response = client.execute(post)
