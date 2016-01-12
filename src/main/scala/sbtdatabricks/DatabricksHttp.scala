@@ -58,7 +58,6 @@ class DatabricksHttp(
    * @param name Name of the library to show on Databricks Cloud
    * @param file The jar file
    * @param folder Where the library should be placed in the file browser in Databricks Cloud
-   * @param attachToAll Whether the library will always be attached to all clusters
    * @return UploadedLibraryId corresponding to the artifact and its LibraryId in Databricks Cloud
    */
   private[sbtdatabricks] def uploadJar(
