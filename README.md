@@ -18,6 +18,8 @@ Just add the following line to `project/plugins.sbt`:
 addSbtPlugin("com.databricks" %% "sbt-databricks" % "0.1.3")
 ```
 
+*If you are running Databricks version 2.8 or greater you must use sbt-databricks version 0.1.3*
+
 #### Enable sbt-databricks for all your projects
 
 `sbt-databricks` can be enabled as a [global plugin](http://www.scala-sbt.org/0.13/tutorial/Using-Plugins.html#Global+plugins)
