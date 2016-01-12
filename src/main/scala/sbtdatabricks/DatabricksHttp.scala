@@ -51,16 +51,18 @@ class DatabricksHttp(endpoint: String, client: HttpClient, outputStream: PrintSt
   mapper.registerModule(DefaultScalaModule)
 
   /**
-   * Upload a jar to Databrics Cloud
+   * Upload a jar to Databrics Cloud.
    * @param name Name of the library to show on Databricks Cloud
    * @param file The jar file
    * @param folder Where the library should be placed in the file browser in Databricks Cloud
+   * @param attachToAll Whether the library will always be attached to all clusters
    * @return UploadedLibraryId corresponding to the artifact and its LibraryId in Databricks Cloud
    */
   private[sbtdatabricks] def uploadJar(
       name: String,
       file: File,
-      folder: String): UploadedLibraryId = {
+      folder: String,
+      attachToAll: Boolean): UploadedLibraryId = {
     outputStream.println(s"Uploading $name")
     val post = new HttpPost(endpoint + LIBRARY_UPLOAD)
     val entity = new MultipartEntity()
@@ -68,6 +70,7 @@ class DatabricksHttp(endpoint: String, client: HttpClient, outputStream: PrintSt
     entity.addPart("name", new StringBody(name))
     entity.addPart("libType", new StringBody("scala"))
     entity.addPart("folder", new StringBody(folder))
+    entity.addPart("attachToAllClusters", new StringBody(attachToAll.toString))
     entity.addPart("uri", new FileBody(file))
     post.setEntity(entity)
     val response = client.execute(post)

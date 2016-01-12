@@ -137,14 +137,15 @@ object DatabricksPlugin extends AutoPlugin {
       client: DatabricksHttp,
       folder: String,
       cp: Seq[File],
-      existing: Seq[UploadedLibrary]): (Seq[UploadedLibrary], Seq[UploadedLibrary]) = {
+      existing: Seq[UploadedLibrary],
+      attachToAll: Boolean): (Seq[UploadedLibrary], Seq[UploadedLibrary]) = {
     // TODO: try to figure out dependencies with changed versions
     val toDelete = existing.filter(_.name.contains("-SNAPSHOT"))
     client.deleteLibraries(toDelete)
     // Either upload the newer SNAPSHOT versions, or everything, because they don't exist yet.
       val toUpload = cp.toSet -- existing.map(_.jar) ++ toDelete.map(_.jar)
     val uploaded = toUpload.map { jar =>
-      val uploadedLib = client.uploadJar(jar.getName, jar, folder)
+      val uploadedLib = client.uploadJar(jar.getName, jar, folder, attachToAll)
       new UploadedLibrary(jar.getName, jar, uploadedLib.id)
     }.toSeq
     (uploaded, toDelete)
@@ -158,13 +159,15 @@ object DatabricksPlugin extends AutoPlugin {
       val folder = dbcLibraryPath.value
       val existing = existingLibraries.value
       val classpath = dbcClasspath.value
-      uploadImpl1(client, folder, classpath, existing)
+      val attachToAll = dbcClusters.value.contains(DBC_ALL_CLUSTERS)
+      uploadImpl1(client, folder, classpath, existing, attachToAll)
     }
 
   private lazy val deployImpl: Def.Initialize[Task[Unit]] = Def.taskDyn {
     val client = dbcApiClient.value
     val (allClusters, done) = dbcFetchClusters.value
     val onClusters = getRealClusterList(dbcClusterSet.value, allClusters)
+    val attachToAll = dbcClusters.value.contains(DBC_ALL_CLUSTERS)
     if (done) {
       Def.taskDyn {
         val oldVersions = existingLibraries.value
@@ -186,8 +189,8 @@ object DatabricksPlugin extends AutoPlugin {
         // Hack to make execution sequential
         if (count == oldVersions.length) {
           Def.task {
-            val (uploaded, _) =
-              uploadImpl1(client, dbcLibraryPath.value, dbcClasspath.value, oldVersions)
+            val (uploaded, _) = uploadImpl1(client, dbcLibraryPath.value, dbcClasspath.value,
+              oldVersions, attachToAll)
             val requiresAttach = requiresAttachFromExisting.toSet ++ uploaded.map((_, onClusters))
             for (libs <- requiresAttach) {
               client.foreachCluster(libs._2, allClusters)(client.attachToCluster(libs._1, _))
