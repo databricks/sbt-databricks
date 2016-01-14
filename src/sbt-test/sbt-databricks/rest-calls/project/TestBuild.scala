@@ -2,10 +2,11 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.scala.DefaultScalaModule
 import com.fasterxml.jackson.module.scala.experimental.ScalaObjectMapper
 import org.apache.http.entity.StringEntity
-import org.apache.http.{ProtocolVersion, HttpResponse}
+import org.apache.http.ProtocolVersion
 import org.apache.http.client.HttpClient
-import org.apache.http.client.methods.{HttpGet, HttpUriRequest}
+import org.apache.http.client.methods.{HttpPost, HttpUriRequest}
 import org.apache.http.message.BasicHttpResponse
+import org.mockito.ArgumentCaptor
 import org.mockito.Matchers.{any, anyString}
 import org.mockito.Mockito._
 import org.mockito.invocation.InvocationOnMock
@@ -199,7 +200,7 @@ object TestBuild extends Build {
         if (output.length != 4) sys.error("Wrong number of messages printed.")
         output.foreach { line =>
           if (!line.contains("Attaching") || !line.contains("to cluster")) {
-            sys.error("Restart message not printed")
+            sys.error("Attach message not printed")
           }
         }
       }
@@ -228,12 +229,19 @@ object TestBuild extends Build {
       TaskKey[Unit]("test") := {
         dbcAttach.value
         val output = Source.fromFile(outputFile).getLines().toSeq
-        // 3 clusters x 2 libraries (test8 + spark-csv (dependency not in path, therefore skip))
-        if (output.length != 6) sys.error("Wrong number of cluster restarts printed.")
+        // 1 cluster (__ALL_CLUSTERS) x 2 libraries
+        // (test8 + spark-csv (dependency not in path, therefore skip))
+        if (output.length != 2) sys.error("Wrong number of cluster attaches printed.")
         output.foreach { line =>
           if (!line.contains("Attaching") || !line.contains("to cluster")) {
-            sys.error("Restart message not printed")
+            sys.error("Attach message not printed")
           }
+        }
+        val client = dbcApiClient.value.client
+        val request = ArgumentCaptor.forClass(classOf[HttpPost])
+        verify(client, times(4)).execute(request.capture())
+        Source.fromInputStream(request.getValue.getEntity.getContent).getLines().foreach { json =>
+          if (!json.contains("__ALL_CLUSTERS")) sys.error("Attach wasn't made to __ALL_CLUSTERS")
         }
       }
     )

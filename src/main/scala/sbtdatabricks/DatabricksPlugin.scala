@@ -60,6 +60,10 @@ object DatabricksPlugin extends AutoPlugin {
 
   import autoImport._
 
+  // Special all clusters representation for library attach
+  private final val INTERNAL_ALL_CLUSTERS = Cluster(DBC_ALL_CLUSTERS, "__ALL_CLUSTERS",
+    null, null, null, -1)
+
   // exposed for testing
   val dbcApiClient = taskKey[DatabricksHttp]("Create client to handle SSL communication.")
 
@@ -343,11 +347,16 @@ object DatabricksPlugin extends AutoPlugin {
       val client = dbcApiClient.value
       val onClusters = dbcClusterSet.value
       val (allClusters, done) = dbcFetchClusters.value
+      val attachToAll = onClusters.contains(DBC_ALL_CLUSTERS)
       if (done) {
         Def.task {
           val libraries = existingLibraries.value
           for (lib <- libraries) {
-            client.foreachCluster(onClusters, allClusters)(client.attachToCluster(lib, _))
+            if (attachToAll) {
+              client.attachToCluster(lib, INTERNAL_ALL_CLUSTERS)
+            } else {
+              client.foreachCluster(onClusters, allClusters)(client.attachToCluster(lib, _))
+            }
           }
         }
       } else {

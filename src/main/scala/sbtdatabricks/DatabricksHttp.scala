@@ -43,7 +43,10 @@ import sbtdatabricks.DatabricksPlugin.autoImport.DBC_ALL_CLUSTERS
 import sbtdatabricks.util.requests._
 
 /** Collection of REST calls to Databricks Cloud and related helper functions. Exposed for tests */
-class DatabricksHttp(endpoint: String, client: HttpClient, outputStream: PrintStream = System.out) {
+class DatabricksHttp(
+    endpoint: String,
+    val client: HttpClient,
+    outputStream: PrintStream = System.out) {
 
   import DBApiEndpoints._
 
@@ -51,7 +54,7 @@ class DatabricksHttp(endpoint: String, client: HttpClient, outputStream: PrintSt
   mapper.registerModule(DefaultScalaModule)
 
   /**
-   * Upload a jar to Databrics Cloud
+   * Upload a jar to Databrics Cloud.
    * @param name Name of the library to show on Databricks Cloud
    * @param file The jar file
    * @param folder Where the library should be placed in the file browser in Databricks Cloud
