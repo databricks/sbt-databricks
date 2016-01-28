@@ -14,7 +14,7 @@ libraryDependencies ++= Seq(
     "org.apache.httpcomponents" % "httpclient" % "4.3.3",
     "org.apache.httpcomponents" % "httpmime" % "4.3.3",
     "org.apache.httpcomponents" % "httpclient-cache" % "4.3.3",
-    "com.fasterxml.jackson.module" %% "jackson-module-scala" % "2.4.2",
+    "com.fasterxml.jackson.module" %% "jackson-module-scala" % "2.5.3",
     "commons-fileupload" % "commons-fileupload" % "1.3")
 
 version in ThisBuild := s"${version.value}"
