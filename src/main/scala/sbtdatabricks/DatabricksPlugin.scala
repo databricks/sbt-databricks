@@ -370,6 +370,7 @@ object DatabricksPlugin extends AutoPlugin {
   override lazy val projectSettings: Seq[Setting[_]] = baseDBCSettings
 }
 
+case class ErrorResponse(error: String)
 case class UploadedLibraryId(id: String)
 case class UploadedLibrary(name: String, jar: File, id: String)
 case class Cluster(
