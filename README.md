@@ -31,7 +31,13 @@ addSbtPlugin("com.databricks" %% "sbt-databricks" % "0.1.4")
     addSbtPlugin("com.databricks" %% "sbt-databricks" % "0.1.4")
     ```
 
-2. Set the settings defined [here](#settings) in `~/.sbt/0.13/databricks.sbt`.
+2. Set the settings defined [here](#settings) in `~/.sbt/0.13/databricks.sbt`. You'll have to add the line
+
+    ```
+    import sbtdatabricks.DatabricksPlugin.autoImport._
+    ```
+
+    to that file in order to import this plugin's settings into that configuration file.
 
 Usage
 =====
@@ -104,7 +110,7 @@ dbcClasspath := Seq(assembly.value)
 
 Other optional parameters are:
 ```
-// The location to upload your libraries to in the workspace e.g. "/home"
+// The location to upload your libraries to in the workspace e.g. "/Users/alice"
 dbcLibraryPath := // Default is "/"
 
 // Whether to restart the clusters every time a new version is uploaded to Databricks Cloud
