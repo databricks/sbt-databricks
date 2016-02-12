@@ -1,13 +1,13 @@
 sbt-databricks [![Build Status](https://travis-ci.org/databricks/sbt-databricks.svg)](http://travis-ci.org/databricks/sbt-databricks)
 --------------
 
-sbt plugin to deploy your projects to Databricks Cloud!
+sbt plugin to deploy your projects to Databricks!
 
 http://go.databricks.com/register-for-dbc
 
 Requirements
 ============
-1. An Account on Databricks Cloud: [Sign up for a free trial.](https://accounts.cloud.databricks.com/registration.html#signup)
+1. An Account on Databricks: [Sign up for a free trial.](https://accounts.cloud.databricks.com/registration.html#signup)
 
 Installation
 ============
