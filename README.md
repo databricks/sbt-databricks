@@ -7,7 +7,7 @@ http://go.databricks.com/register-for-dbc
 
 Requirements
 ============
-1. Open up the port `34563` for DB Api.
+1. An Account on Databricks Cloud: [Sign up for a free trial.](https://accounts.cloud.databricks.com/registration.html#signup)
 
 Installation
 ============
