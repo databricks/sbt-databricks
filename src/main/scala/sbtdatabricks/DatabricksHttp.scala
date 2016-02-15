@@ -18,12 +18,15 @@ package sbtdatabricks
 
 import java.io.PrintStream
 
+import scala.util.control.NonFatal
+
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.scala.DefaultScalaModule
 import com.fasterxml.jackson.module.scala.experimental.ScalaObjectMapper
 
+import org.apache.http.{HttpEntity, StatusLine, HttpResponse}
 import org.apache.http.auth.{AuthScope, UsernamePasswordCredentials}
-import org.apache.http.client.HttpClient
+import org.apache.http.client.{HttpResponseException, HttpClient}
 import org.apache.http.client.entity.UrlEncodedFormEntity
 import org.apache.http.client.methods._
 import org.apache.http.client.utils.URLEncodedUtils
@@ -31,8 +34,9 @@ import org.apache.http.conn.ssl.{SSLConnectionSocketFactory, TrustSelfSignedStra
 import org.apache.http.entity.StringEntity
 import org.apache.http.entity.mime.MultipartEntity
 import org.apache.http.entity.mime.content.{FileBody, StringBody}
-import org.apache.http.impl.client.{BasicResponseHandler, HttpClients, BasicCredentialsProvider}
+import org.apache.http.impl.client.{BasicCredentialsProvider, HttpClients}
 import org.apache.http.message.BasicNameValuePair
+import org.apache.http.util.EntityUtils
 
 import sbt._
 import scala.collection.JavaConversions._
@@ -52,6 +56,31 @@ class DatabricksHttp(
 
   private val mapper = new ObjectMapper() with ScalaObjectMapper
   mapper.registerModule(DefaultScalaModule)
+
+  /**
+   * Returns the response body as a string for HTTP 200 responses, or throws an exception with a
+   * useful message for error responses.
+   */
+  private def handleResponse(response: HttpResponse): String = {
+    val statusLine: StatusLine = response.getStatusLine
+    val entity: HttpEntity = response.getEntity
+    if (statusLine.getStatusCode >= 300) {
+      val errorMessage: String = {
+        if (entity != null) {
+          val stringResponse = EntityUtils.toString(entity)
+          try {
+            mapper.readValue[ErrorResponse](stringResponse).error
+          } catch {
+            case NonFatal(e) => statusLine.getReasonPhrase
+          }
+        } else {
+          statusLine.getReasonPhrase
+        }
+      }
+      throw new HttpResponseException(statusLine.getStatusCode, errorMessage)
+    }
+    if (entity == null) null else EntityUtils.toString(entity)
+  }
 
   /**
    * Upload a jar to Databrics Cloud.
@@ -74,8 +103,7 @@ class DatabricksHttp(
     entity.addPart("uri", new FileBody(file))
     post.setEntity(entity)
     val response = client.execute(post)
-    val handler = new BasicResponseHandler()
-    val stringResponse = handler.handleResponse(response)
+    val stringResponse = handleResponse(response)
     mapper.readValue[UploadedLibraryId](stringResponse)
   }
 
@@ -89,8 +117,7 @@ class DatabricksHttp(
     val form = List(new BasicNameValuePair("libraryId", libraryId))
     post.setEntity(new UrlEncodedFormEntity(form))
     val response = client.execute(post)
-    val handler = new BasicResponseHandler()
-    handler.handleResponse(response)
+    handleResponse(response)
   }
 
   /**
@@ -100,8 +127,7 @@ class DatabricksHttp(
   private[sbtdatabricks] def fetchLibraries: Seq[LibraryListResult] = {
     val request = new HttpGet(endpoint + LIBRARY_LIST)
     val response = client.execute(request)
-    val handler = new BasicResponseHandler()
-    val stringResponse = handler.handleResponse(response)
+    val stringResponse = handleResponse(response)
     mapper.readValue[Seq[LibraryListResult]](stringResponse)
   }
 
@@ -116,8 +142,7 @@ class DatabricksHttp(
       URLEncodedUtils.format(List(new BasicNameValuePair("libraryId", libraryId)), "utf-8")
     val request = new HttpGet(endpoint + LIBRARY_STATUS + "?" + form)
     val response = client.execute(request)
-    val handler = new BasicResponseHandler()
-    val stringResponse = handler.handleResponse(response)
+    val stringResponse = handleResponse(response)
     mapper.readValue[LibraryStatus](stringResponse)
   }
 
@@ -177,8 +202,7 @@ class DatabricksHttp(
     val content = CreateContextRequestV1(language.is, cluster.id)
     setJsonRequest(content, post)
     val response = client.execute(post)
-    val handler = new BasicResponseHandler()
-    val responseString = handler.handleResponse(response).trim
+    val responseString = handleResponse(response).trim
     mapper.readValue[ContextId](responseString)
   }
 
@@ -198,8 +222,7 @@ class DatabricksHttp(
                                   new BasicNameValuePair("contextId", contextId.id)), "utf-8")
     val request = new HttpGet(endpoint + CONTEXT_STATUS + "?" + form)
     val response = client.execute(request)
-    val handler = new BasicResponseHandler()
-    val responseString = handler.handleResponse(response).trim
+    val responseString = handleResponse(response).trim
     val contextStatus = mapper.readValue[ContextStatus](responseString)
     outputStream.println(contextStatus.toString)
     contextStatus
@@ -220,8 +243,7 @@ class DatabricksHttp(
     val content = DestroyContextRequestV1(cluster.id, contextId.id)
     setJsonRequest(content, post)
     val response = client.execute(post)
-    val handler = new BasicResponseHandler()
-    val responseString = handler.handleResponse(response).trim
+    val responseString = handleResponse(response).trim
     mapper.readValue[ContextId](responseString)
   }
 
@@ -251,8 +273,7 @@ class DatabricksHttp(
     post.setEntity(entity)
 
     val response = client.execute(post)
-    val handler = new BasicResponseHandler()
-    val responseString = handler.handleResponse(response).trim
+    val responseString = handleResponse(response).trim
     mapper.readValue[CommandId](responseString)
   }
 
@@ -276,8 +297,7 @@ class DatabricksHttp(
                                   new BasicNameValuePair("commandId", commandId.id)), "utf-8")
     val request = new HttpGet(endpoint + COMMAND_STATUS + "?" + form)
     val response = client.execute(request)
-    val handler = new BasicResponseHandler()
-    val responseString = handler.handleResponse(response).trim
+    val responseString = handleResponse(response).trim
     val commandStatus = mapper.readValue[CommandStatus](responseString)
     outputStream.println(commandStatus.toString)
     commandStatus
@@ -300,8 +320,7 @@ class DatabricksHttp(
     val content = CancelCommandRequestV1(cluster.id, contextId.id, commandId.id)
     setJsonRequest(content, post)
     val response = client.execute(post)
-    val handler = new BasicResponseHandler()
-    val responseString = handler.handleResponse(response).trim
+    val responseString = handleResponse(response).trim
     mapper.readValue[CommandId](responseString)
   }
 
@@ -317,8 +336,7 @@ class DatabricksHttp(
     val content = LibraryAttachRequestV1(library.id, cluster.id)
     setJsonRequest(content, post)
     val response = client.execute(post)
-    val handler = new BasicResponseHandler()
-    handler.handleResponse(response)
+    handleResponse(response)
   }
 
   /**
@@ -328,8 +346,7 @@ class DatabricksHttp(
   private[sbtdatabricks] def fetchClusters: Seq[Cluster] = {
     val request = new HttpGet(endpoint + CLUSTER_LIST)
     val response = client.execute(request)
-    val handler = new BasicResponseHandler()
-    val stringResponse = handler.handleResponse(response)
+    val stringResponse = handleResponse(response)
     mapper.readValue[Seq[Cluster]](stringResponse)
   }
 
@@ -343,8 +360,7 @@ class DatabricksHttp(
       URLEncodedUtils.format(List(new BasicNameValuePair("clusterId", clusterId)), "utf-8")
     val request = new HttpGet(endpoint + CLUSTER_INFO + "?" + form)
     val response = client.execute(request)
-    val handler = new BasicResponseHandler()
-    val stringResponse = handler.handleResponse(response)
+    val stringResponse = handleResponse(response)
     mapper.readValue[Cluster](stringResponse)
   }
 
@@ -355,8 +371,7 @@ class DatabricksHttp(
     val content = RestartClusterRequestV1(cluster.id)
     setJsonRequest(content, post)
     val response = client.execute(post)
-    val handler = new BasicResponseHandler()
-    handler.handleResponse(response)
+    handleResponse(response)
   }
 
   /**
