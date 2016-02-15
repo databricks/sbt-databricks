@@ -93,8 +93,8 @@ dbcUsername := // e.g. "admin"
 // Your password (Can be set as an environment variable)
 dbcPassword := // e.g. "admin" or System.getenv("DBCLOUD_PASSWORD")
 
-// The URL to the Databricks Cloud DB Api. Don't forget to set the port number to 34563!
-dbcApiUrl := // https://organization.cloud.databricks.com:34563/api/1.1
+// The URL to the Databricks Cloud DB Api.!
+dbcApiUrl := // https://organization.cloud.databricks.com/api/1.2
 
 // Add any clusters that you would like to deploy your work to. e.g. "My Cluster"
 // or run dbcExecuteCommand
