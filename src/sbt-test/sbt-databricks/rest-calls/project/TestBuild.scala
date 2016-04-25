@@ -4,7 +4,8 @@ import com.fasterxml.jackson.module.scala.experimental.ScalaObjectMapper
 import org.apache.http.entity.StringEntity
 import org.apache.http.ProtocolVersion
 import org.apache.http.client.HttpClient
-import org.apache.http.client.methods.{HttpPost, HttpUriRequest}
+import org.apache.http.client.methods.{HttpRequestBase, HttpPost, HttpUriRequest}
+import org.apache.http.entity.mime.MultipartEntity
 import org.apache.http.message.BasicHttpResponse
 import org.mockito.ArgumentCaptor
 import org.mockito.Matchers.{any, anyString}
@@ -18,6 +19,7 @@ import sbtdatabricks.DatabricksPlugin._
 import sbtdatabricks.DatabricksPlugin.autoImport._
 
 import scala.io.Source
+import scala.collection.JavaConversions._
 import sbt._
 import Keys._
 
@@ -86,15 +88,14 @@ object TestBuild extends Build {
       dbcApiClient := mockClient(Seq(res, uploadedLibResponse("1"), uploadedLibResponse("2"),
         uploadedLibResponse("3")), outputFile),
       libraryDependencies += "com.databricks" %% "spark-csv" % "1.0.0",
-      TaskKey[Unit]("test") := {
-        dbcUpload.value
+      TaskKey[Unit]("test") := dbApiTest(dbcUpload) { _ =>
         val output = Source.fromFile(outputFile).getLines().toSeq
         // 2 from Spark csv, 1 from test2, 1 from test3
         if (output.length != 4) sys.error("Wrong number of libraries uploaded.")
         output.foreach { line =>
           if (!line.contains("Uploading")) sys.error("Upload message not printed")
         }
-      }
+      }.value
     )
   }
 
@@ -115,8 +116,7 @@ object TestBuild extends Build {
       dbcApiClient := mockClient(Seq(res, "", // delete test4 because it is a SNAPSHOT version
         uploadedLibResponse("5"), uploadedLibResponse("6"), uploadedLibResponse("7")), outputFile),
       libraryDependencies += "com.databricks" %% "spark-csv" % "1.0.0",
-      TaskKey[Unit]("test") := {
-        dbcUpload.value
+      TaskKey[Unit]("test") := dbApiTest(dbcUpload) { _ =>
         val output = Source.fromFile(outputFile).getLines().toSeq
         // 1 from Spark csv (upload common-csv, the dependency),
         // 1 from deleting test4 (the one in /jkl is omitted), 1 from uploading test4
@@ -128,7 +128,7 @@ object TestBuild extends Build {
             if (!line.contains("Deleting")) sys.error("Delete message not printed")
           }
         }
-      }
+      }.value
     )
   }
 
@@ -142,14 +142,13 @@ object TestBuild extends Build {
       dbcApiClient := mockClient(Seq(response), outputFile),
       dbcClusters += "a",
       dbcClusters += "b",
-      TaskKey[Unit]("test") := {
-        dbcRestartClusters.value
+      TaskKey[Unit]("test") := dbApiTest(dbcRestartClusters) { _ =>
         val output = Source.fromFile(outputFile).getLines().toSeq
         if (output.length != 2) sys.error("Wrong number of cluster restarts printed.")
         output.foreach { line =>
           if (!line.contains("Restarting cluster:")) sys.error("Restart message not printed")
         }
-      }
+      }.value
     )
   }
 
@@ -163,14 +162,13 @@ object TestBuild extends Build {
       dbcApiClient := mockClient(Seq(response), outputFile),
       dbcClusters += "a", // useless. There to check if we don't do cluster `a` twice
       dbcClusters += "ALL_CLUSTERS",
-      TaskKey[Unit]("test") := {
-        dbcRestartClusters.value
+      TaskKey[Unit]("test") := dbApiTest(dbcRestartClusters) { _ =>
         val output = Source.fromFile(outputFile).getLines().toSeq
         if (output.length != 3) sys.error("Wrong number of cluster restarts printed.")
         output.foreach { line =>
           if (!line.contains("Restarting cluster:")) sys.error("Restart message not printed")
         }
-      }
+      }.value
     )
   }
 
@@ -193,8 +191,7 @@ object TestBuild extends Build {
       name := "test7",
       version := "0.1-SNAPSHOT",
       libraryDependencies += "com.databricks" %% "spark-csv" % "1.0.0",
-      TaskKey[Unit]("test") :=  {
-        dbcAttach.value
+      TaskKey[Unit]("test") := dbApiTest(dbcAttach) { _ =>
         val output = Source.fromFile(outputFile).getLines().toSeq
         // 2 clusters x 2 libraries (test7 + spark-csv (dependency not in path, therefore skip))
         if (output.length != 4) sys.error("Wrong number of messages printed.")
@@ -203,7 +200,7 @@ object TestBuild extends Build {
             sys.error("Attach message not printed")
           }
         }
-      }
+      }.value
     )
   }
 
@@ -226,8 +223,7 @@ object TestBuild extends Build {
       name := "test8",
       version := "0.1-SNAPSHOT",
       libraryDependencies += "com.databricks" %% "spark-csv" % "1.0.0",
-      TaskKey[Unit]("test") := {
-        dbcAttach.value
+      TaskKey[Unit]("test") := dbApiTest(dbcAttach) { client =>
         val output = Source.fromFile(outputFile).getLines().toSeq
         // 1 cluster (__ALL_CLUSTERS) x 2 libraries
         // (test8 + spark-csv (dependency not in path, therefore skip))
@@ -237,13 +233,12 @@ object TestBuild extends Build {
             sys.error("Attach message not printed")
           }
         }
-        val client = dbcApiClient.value.client
         val request = ArgumentCaptor.forClass(classOf[HttpPost])
         verify(client, times(4)).execute(request.capture())
         Source.fromInputStream(request.getValue.getEntity.getContent).getLines().foreach { json =>
           if (!json.contains("__ALL_CLUSTERS")) sys.error("Attach wasn't made to __ALL_CLUSTERS")
         }
-      }
+      }.value
     )
   }
 
@@ -269,8 +264,7 @@ object TestBuild extends Build {
       name := "test9",
       version := "0.1-SNAPSHOT",
       libraryDependencies += "com.databricks" %% "spark-csv" % "1.0.0",
-      TaskKey[Unit]("test") := {
-        dbcDeploy.value
+      TaskKey[Unit]("test") := dbApiTest(dbcDeploy) { _ =>
         val out = Source.fromFile(outputFile).getLines().toSeq
         if (out.length != 6) sys.error("Wrong number of messages printed.")
         if (!out(0).contains("Uploading")) sys.error("Upload message not printed")
@@ -279,7 +273,7 @@ object TestBuild extends Build {
         if (!out(3).contains("Attaching")) sys.error("Attach message not printed")
         if (!out(4).contains("Attaching")) sys.error("Attach message not printed")
         if (!out(5).contains("Attaching")) sys.error("Attach message not printed")
-      }
+      }.value
     )
   }
 
@@ -323,15 +317,14 @@ object TestBuild extends Build {
       name := "test10",
       version := "0.1-SNAPSHOT",
       libraryDependencies += "com.databricks" %% "spark-csv" % "1.0.0",
-      TaskKey[Unit]("test") := {
-        dbcDeploy.value
+      TaskKey[Unit]("test") := dbApiTest(dbcDeploy) { _ =>
         val out = Source.fromFile(outputFile).getLines().toSeq
         if (out.length != 4) sys.error("Wrong number of messages printed.")
         if (!out(0).contains("Deleting")) sys.error("Delete message not printed")
         if (!out(1).contains("Uploading")) sys.error("Upload message not printed")
         if (!out(2).contains("Attaching")) sys.error("Attach message not printed")
         if (!out(3).contains("Restarting")) sys.error("Restart message not printed")
-      }
+      }.value
     )
   }
 
@@ -341,9 +334,7 @@ object TestBuild extends Build {
   def serverErrorTest: Seq[Setting[_]] = {
     Seq(
       dbcApiClient := mockServerError("", file("11") / "output.txt"),
-      TaskKey[Unit]("test") := {
-        dbcFetchClusters.value
-      }
+      TaskKey[Unit]("test") := dbApiTest(dbcFetchClusters)( _ => null ).value
     )
   }
 
@@ -377,8 +368,7 @@ object TestBuild extends Build {
       name := "test12",
       version := "0.1-SNAPSHOT",
       libraryDependencies += "com.databricks" %% "spark-csv" % "1.0.0",
-      TaskKey[Unit]("test") := {
-        dbcDeploy.value
+      TaskKey[Unit]("test") := dbApiTest(dbcDeploy) { _ =>
         val out = Source.fromFile(outputFile).getLines().toSeq
         if (out.length != 5) sys.error("Wrong number of messages printed.")
         if (!out(0).contains("Deleting")) sys.error("Delete message not printed")
@@ -386,7 +376,7 @@ object TestBuild extends Build {
         if (!out(2).contains("Attaching")) sys.error("Attach message not printed")
         if (!out(3).contains("Attaching")) sys.error("Attach message not printed")
         if (!out(4).contains("Attaching")) sys.error("Attach message not printed")
-      }
+      }.value
     )
   }
 
@@ -414,8 +404,7 @@ object TestBuild extends Build {
       name := "test13",
       version := "0.1-SNAPSHOT",
       libraryDependencies += "com.databricks" %% "spark-csv" % "1.0.0",
-      TaskKey[Unit]("test") := {
-        dbcDeploy.value
+      TaskKey[Unit]("test") := dbApiTest(dbcDeploy) { _ =>
         val out = Source.fromFile(outputFile).getLines().toSeq
         if (out.length != 10) sys.error("Wrong number of messages printed.")
         if (!out(0).contains("Deleting")) sys.error("Delete message not printed")
@@ -429,7 +418,7 @@ object TestBuild extends Build {
         if (!out(7).contains("Attaching")) sys.error("Attach message not printed")
         if (!out(8).contains("Attaching")) sys.error("Attach message not printed")
         if (!out(9).contains("Restarting")) sys.error("Restart message not printed")
-      }
+      }.value
     )
   }
 
@@ -477,15 +466,14 @@ object TestBuild extends Build {
       dbcCommandFile := new File("test"),
       dbcClusters += "a",
       name := "test14",
-      TaskKey[Unit]("test") := {
-        dbcExecuteCommand.value
+      TaskKey[Unit]("test") := dbApiTest(dbcExecuteCommand) { _ =>
         val out = Source.fromFile(outputFile).getLines().toSeq
         if (out.length != 12) sys.error("Wrong number of messages printed.")
         if (!out(2).contains("Pending")) sys.error("Pending context message not printed")
         if (!out(4).contains("Running")) sys.error("Running context message not printed")
         if (!out(7).contains("Running")) sys.error("Running command message not printed")
         if (!out(10).contains("Job ran ok")) sys.error("Data from command completion not printed")
-      }
+      }.value
     )
   }
 
@@ -525,13 +513,12 @@ object TestBuild extends Build {
       dbcCommandFile := new File("test"),
       dbcClusters += "a",
       name := "test15",
-      TaskKey[Unit]("test") := {
-        dbcExecuteCommand.value
+      TaskKey[Unit]("test") := dbApiTest(dbcExecuteCommand) { _ =>
         val out = Source.fromFile(outputFile).getLines().toSeq
         if (out.length != 8) sys.error("Wrong number of messages printed.")
         if (!out(2).contains("Running")) sys.error("Running context message not printed")
         if (!out(5).contains("An error")) sys.error("Command with error message not printed")
-      }
+      }.value
     )
   }
 
@@ -545,9 +532,21 @@ object TestBuild extends Build {
       mockReponse.setEntity(new StringEntity(res))
       mockReponse
     }
-    when(client.execute(any[HttpUriRequest]())).thenReturn(mocks(0), mocks.drop(1): _*)
+    when(client.execute(any[HttpRequestBase]())).thenReturn(mocks(0), mocks.drop(1): _*)
 
     DatabricksHttp.testClient(client, file)
+  }
+
+  def verifyHeaderOnMultipartUpload(client: HttpClient): Unit = {
+    val argCaptor = ArgumentCaptor.forClass(classOf[HttpRequestBase])
+    verify(client, atLeastOnce()).execute(argCaptor.capture())
+    argCaptor.getAllValues().foreach {
+      case post: HttpPost if post.getEntity.isInstanceOf[MultipartEntity] =>
+        if (post.getFirstHeader("Expect").getValue() != "100-continue") {
+          sys.error("Multipart uploads must include header 'Expect: 100-continue'")
+        }
+      case _ => // not what we are checking for
+    }
   }
 
   def mockServerError(responses: String, file: File): DatabricksHttp = {
@@ -555,6 +554,15 @@ object TestBuild extends Build {
     val mockReponse = new BasicHttpResponse(new ProtocolVersion("HTTP", 1, 1), 500, null)
     when(client.execute(any[HttpUriRequest]())).thenReturn(mockReponse)
     DatabricksHttp.testClient(client, file)
+  }
+
+  def dbApiTest[A](
+      task: Def.Initialize[Task[A]])(f: HttpClient => Unit): Def.Initialize[Task[Unit]] = {
+    Def.sequential(
+      task,
+      Def.task { f(dbcApiClient.value.client) },
+      Def.task { verifyHeaderOnMultipartUpload(dbcApiClient.value.client) }
+    )
   }
 }
 
