@@ -102,6 +102,8 @@ class DatabricksHttp(
     entity.addPart("folder", new StringBody(folder))
     entity.addPart("uri", new FileBody(file))
     post.setEntity(entity)
+    // jetty closes the connection if we don't set this header
+    post.addHeader("Expect", "100-continue")
     val response = client.execute(post)
     val stringResponse = handleResponse(response)
     mapper.readValue[UploadedLibraryId](stringResponse)
@@ -271,7 +273,8 @@ class DatabricksHttp(
     entity.addPart("contextId", new StringBody(contextId.id))
     entity.addPart("command", new FileBody(commandFile))
     post.setEntity(entity)
-
+    // jetty closes the connection if we don't set this header
+    post.addHeader("Expect", "100-continue")
     val response = client.execute(post)
     val responseString = handleResponse(response).trim
     mapper.readValue[CommandId](responseString)
