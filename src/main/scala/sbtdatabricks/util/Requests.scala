@@ -45,4 +45,21 @@ private[sbtdatabricks] object requests {
 
   /** Request sent to restart a cluster */
   private[sbtdatabricks] case class RestartClusterRequestV1(clusterId: String) extends DBApiRequest
+
+  /** Request sent to create a cluster */
+  private[sbtdatabricks] case class CreateClusterRequestV1(
+      name: String,
+      numWorkerContainers: Integer,
+      useSpot: Boolean,
+      sparkVersion: String,
+      zoneId: Option[String]) extends DBApiRequest
+
+  /** Request sent to resize a cluster */
+  private[sbtdatabricks] case class ResizeClusterRequestV1(
+      clusterId: String,
+      numWorkerContainers: Integer) extends DBApiRequest
+
+  /** Request sent to delete a cluster */
+  private[sbtdatabricks] case class DeleteClusterRequestV1(
+      clusterId: String) extends DBApiRequest
 }

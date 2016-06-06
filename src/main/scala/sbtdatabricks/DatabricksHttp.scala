@@ -83,7 +83,64 @@ class DatabricksHttp(
   }
 
   /**
-   * Upload a jar to Databrics Cloud.
+   * Get cluster
+   * @param clusterId id of the desired cluster
+   * @return cluster the cluster information if it exists
+   */
+  private[sbtdatabricks] def getCluster(clusterId: String): Option[Cluster] = {
+    outputStream.println(s"Obtaining status information for Cluster Id $clusterId")
+    fetchClusters.find(_.id == clusterId)
+  }
+
+  /**
+   * Create a cluster
+   * @param name of the cluster to be created
+   * @param numWorkerContainers number of worker containers required
+   * @param useSpot whether to use spot instances
+   * @param sparkVersion desired Spark version
+   * @param zoneId desired AWS location
+   * @return The id of the newly created cluster
+   *
+   */
+  private[sbtdatabricks] def createCluster(
+      name: String,
+      numWorkerContainers: Integer,
+      useSpot: Boolean,
+      sparkVersion: String,
+      zoneId: Option[String]): ClusterId = {
+    val checkExistingClusters = fetchClusters.filter(_.name == name)
+    if (!checkExistingClusters.isEmpty) {
+      outputStream.println(s"Cluster with name '$name' already exists")
+      ClusterId(checkExistingClusters.head.id)
+    } else {
+      postWrapper[ClusterId](CreateClusterInputV1(name, numWorkerContainers, useSpot, sparkVersion,
+        zoneId))
+    }
+  }
+  
+  /**
+   * Delete a cluster
+   * @param cluster the cluster to be deleted
+   * @return The id of the deleted cluster
+   */
+  private[sbtdatabricks] def deleteCluster(cluster: Cluster): ClusterId = {
+    postWrapper[ClusterId](DeleteClusterInputV1(cluster))
+  }
+
+  /**
+   * Resize a cluster
+   * @param cluster the cluster to be resized
+   * @param numWorkerContainers number of worker containers required
+   * @return The id of the resized cluster
+   */
+  private[sbtdatabricks] def resizeCluster(
+      cluster: Cluster,
+      numWorkerContainers: Integer): ClusterId = {
+    postWrapper[ClusterId](ResizeClusterInputV1(cluster, numWorkerContainers))
+  }
+
+  /**
+   * Upload a jar to Databrics Cloud
    * @param name Name of the library to show on Databricks Cloud
    * @param file The jar file
    * @param folder Where the library should be placed in the file browser in Databricks Cloud
@@ -198,14 +255,7 @@ class DatabricksHttp(
   private[sbtdatabricks] def createContext(
       language: DBCExecutionLanguage,
       cluster: Cluster): ContextId = {
-    val msg = s"Creating '${language.is}' execution context on cluster '${cluster.name}'"
-    outputStream.println(msg)
-    val post = new HttpPost(endpoint + CONTEXT_CREATE)
-    val content = CreateContextRequestV1(language.is, cluster.id)
-    setJsonRequest(content, post)
-    val response = client.execute(post)
-    val responseString = handleResponse(response).trim
-    mapper.readValue[ContextId](responseString)
+    postWrapper[ContextId](CreateContextInputV1(language, cluster))
   }
 
   /**
@@ -237,16 +287,9 @@ class DatabricksHttp(
    * @return the id of the execution context
    */
   private[sbtdatabricks] def destroyContext(
-      contextId: ContextId,
-      cluster: Cluster): ContextId = {
-    val msg = s"Terminating execution context on cluster '${cluster.name}'"
-    outputStream.println(msg)
-    val post = new HttpPost(endpoint + CONTEXT_DESTROY)
-    val content = DestroyContextRequestV1(cluster.id, contextId.id)
-    setJsonRequest(content, post)
-    val response = client.execute(post)
-    val responseString = handleResponse(response).trim
-    mapper.readValue[ContextId](responseString)
+      cluster: Cluster,
+      contextId: ContextId): ContextId = {
+    postWrapper[ContextId](DestroyContextInputV1(cluster, contextId))
   }
 
 
@@ -318,13 +361,7 @@ class DatabricksHttp(
       cluster: Cluster,
       contextId: ContextId,
       commandId: CommandId): CommandId = {
-    outputStream.println(s"Cancelling command on cluster '${cluster.name}'")
-    val post = new HttpPost(endpoint + COMMAND_CANCEL)
-    val content = CancelCommandRequestV1(cluster.id, contextId.id, commandId.id)
-    setJsonRequest(content, post)
-    val response = client.execute(post)
-    val responseString = handleResponse(response).trim
-    mapper.readValue[CommandId](responseString)
+    postWrapper[CommandId](CancelCommandInputV1(cluster, contextId, commandId))
   }
 
   /**
@@ -333,13 +370,10 @@ class DatabricksHttp(
    * @param cluster The cluster to attach the library to
    * @return Response from Databricks Cloud
    */
-  private[sbtdatabricks] def attachToCluster(library: UploadedLibrary, cluster: Cluster): String = {
-    outputStream.println(s"Attaching ${library.name} to cluster '${cluster.name}'")
-    val post = new HttpPost(endpoint + LIBRARY_ATTACH)
-    val content = LibraryAttachRequestV1(library.id, cluster.id)
-    setJsonRequest(content, post)
-    val response = client.execute(post)
-    handleResponse(response)
+  private[sbtdatabricks] def attachToCluster(
+      library: UploadedLibrary,
+      cluster: Cluster): ClusterId = {
+    postWrapper[ClusterId](LibraryAttachInputV1(library, cluster))
   }
 
   /**
@@ -364,17 +398,14 @@ class DatabricksHttp(
     val request = new HttpGet(endpoint + CLUSTER_INFO + "?" + form)
     val response = client.execute(request)
     val stringResponse = handleResponse(response)
-    mapper.readValue[Cluster](stringResponse)
+    val cluster = mapper.readValue[Cluster](stringResponse)
+    outputStream.println(cluster.toString)
+    cluster
   }
 
   /** Restart a cluster */
-  private[sbtdatabricks] def restartCluster(cluster: Cluster): String = {
-    outputStream.println(s"Restarting cluster: ${cluster.name}")
-    val post = new HttpPost(endpoint + CLUSTER_RESTART)
-    val content = RestartClusterRequestV1(cluster.id)
-    setJsonRequest(content, post)
-    val response = client.execute(post)
-    handleResponse(response)
+  private[sbtdatabricks] def restartCluster(cluster: Cluster): ClusterId = {
+    postWrapper[ClusterId](RestartClusterInputV1(cluster))
   }
 
   /**
@@ -404,6 +435,21 @@ class DatabricksHttp(
         }
       }
     }
+  }
+
+  /**
+   * Wrapper for the basic post commands
+   * @param input case class with the relevant post settings
+   * @return Response case class
+   *
+   */
+  private def postWrapper[T <: Responses: Manifest](input: PostInputs): T = {
+    outputStream.println(input.initialMessage)
+    val post = new HttpPost(endpoint + input.dbAPIEndPoint)
+    setJsonRequest(input.requestCC, post)
+    val response = client.execute(post)
+    val responseString = handleResponse(response).trim
+    mapper.readValue[T](responseString)
   }
 
   private def setJsonRequest(contents: DBApiRequest, post: HttpPost): Unit = {
