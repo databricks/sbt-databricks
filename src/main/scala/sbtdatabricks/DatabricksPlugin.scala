@@ -361,7 +361,7 @@ object DatabricksPlugin extends AutoPlugin {
           |dbcUsername not defined. Please make sure to add these keys to your build:
           |  dbcUsername := "user"
           |  dbcPassword := "pass"
-          |  dbcApiUrl := "https://organization.cloud.databricks.com:34563/api/1.1"
+          |  dbcApiUrl := "https://organization.cloud.databricks.com/api/1.2"
           |  See the sbt-databricks README for more info.
         """.stripMargin)
     },
@@ -371,7 +371,7 @@ object DatabricksPlugin extends AutoPlugin {
           |dbcPassword not defined. Please make sure to add these keys to your build:
           |  dbcUsername := "user"
           |  dbcPassword := "pass"
-          |  dbcApiUrl := "https://organization.cloud.databricks.com:34563/api/1.1"
+          |  dbcApiUrl := "https://organization.cloud.databricks.com/api/1.2"
           |  See the sbt-databricks README for more info.
         """.stripMargin)
     },
@@ -381,7 +381,7 @@ object DatabricksPlugin extends AutoPlugin {
           |dbcApiUrl not defined. Please make sure to add these keys to your build:
           |  dbcUsername := "user"
           |  dbcPassword := "pass"
-          |  dbcApiUrl := "https://organization.cloud.databricks.com:34563/api/1.1"
+          |  dbcApiUrl := "https://organization.cloud.databricks.com/api/1.2"
           |  See the sbt-databricks README for more info.
         """.stripMargin)
     },

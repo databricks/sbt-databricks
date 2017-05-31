@@ -126,6 +126,8 @@ dbcUsername := // e.g. "admin"
 dbcPassword := // e.g. "admin" or System.getenv("DBCLOUD_PASSWORD")
 
 // The URL to the Databricks Cloud DB Api.!
+// Note: this plugin currently does not support the /api/2.0 endpoint, so values using that
+// endpoint will be automatically rewritten to use /api/1.2.
 dbcApiUrl := // https://organization.cloud.databricks.com/api/1.2
 
 // Add any clusters that you would like to deploy your work to. e.g. "My Cluster"
