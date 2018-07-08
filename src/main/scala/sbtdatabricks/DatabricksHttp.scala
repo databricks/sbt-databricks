@@ -23,21 +23,19 @@ import scala.util.control.NonFatal
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.scala.DefaultScalaModule
 import com.fasterxml.jackson.module.scala.experimental.ScalaObjectMapper
-
-import org.apache.http.{HttpEntity, StatusLine, HttpResponse}
+import org.apache.http.{HttpEntity, HttpResponse, StatusLine}
 import org.apache.http.auth.{AuthScope, UsernamePasswordCredentials}
-import org.apache.http.client.{HttpResponseException, HttpClient}
+import org.apache.http.client.{HttpClient, HttpResponseException}
 import org.apache.http.client.entity.UrlEncodedFormEntity
 import org.apache.http.client.methods._
 import org.apache.http.client.utils.URLEncodedUtils
-import org.apache.http.conn.ssl.{SSLConnectionSocketFactory, TrustSelfSignedStrategy, SSLContextBuilder}
+import org.apache.http.conn.ssl.{SSLConnectionSocketFactory, SSLContextBuilder, TrustSelfSignedStrategy}
 import org.apache.http.entity.StringEntity
 import org.apache.http.entity.mime.MultipartEntity
 import org.apache.http.entity.mime.content.{FileBody, StringBody}
 import org.apache.http.impl.client.{BasicCredentialsProvider, HttpClients}
-import org.apache.http.message.BasicNameValuePair
+import org.apache.http.message.{BasicHeader, BasicNameValuePair}
 import org.apache.http.util.EntityUtils
-
 import sbt._
 import scala.collection.JavaConversions._
 import scala.collection.mutable.ArrayBuffer
@@ -473,31 +471,35 @@ class DatabricksHttp(
 object DatabricksHttp {
 
   /** Create an SSL client to handle communication. */
-  private[sbtdatabricks] def getApiClient(username: String, password: String): HttpClient = {
+  private[sbtdatabricks] def getApiClient(
+      username: String,
+      password: String,
+      version: String): HttpClient = {
 
-      val builder = new SSLContextBuilder()
-      builder.loadTrustMaterial(null, new TrustSelfSignedStrategy())
-      // TLSv1.2 is only available in Java 7 and above
-      builder.useProtocol("TLSv1.2")
-      val sslsf = new SSLConnectionSocketFactory(builder.build())
+    val builder = new SSLContextBuilder()
+    builder.loadTrustMaterial(null, new TrustSelfSignedStrategy())
+    // TLSv1.2 is only available in Java 7 and above
+    builder.useProtocol("TLSv1.2")
+    val sslsf = new SSLConnectionSocketFactory(builder.build())
 
-      val provider = new BasicCredentialsProvider
-      val credentials = new UsernamePasswordCredentials(username, password)
-      provider.setCredentials(AuthScope.ANY, credentials)
+    val provider = new BasicCredentialsProvider
+    val credentials = new UsernamePasswordCredentials(username, password)
+    provider.setCredentials(AuthScope.ANY, credentials)
 
-      val client =
-        HttpClients.custom()
-          .setSSLSocketFactory(sslsf)
-          .setDefaultCredentialsProvider(provider)
-          .build()
-      client
+    val client =
+      HttpClients.custom()
+        .setSSLSocketFactory(sslsf)
+        .setDefaultCredentialsProvider(provider)
+        .setUserAgent(s"sbt-databricks $version")
+        .build()
+    client
   }
 
   private[sbtdatabricks] def apply(
       endpoint: String,
       username: String,
       password: String): DatabricksHttp = {
-    val cli = DatabricksHttp.getApiClient(username, password)
+    val cli = DatabricksHttp.getApiClient(username, password, build.VERSION_STRING)
     new DatabricksHttp(endpoint, cli)
   }
 

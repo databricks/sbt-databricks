@@ -1,6 +1,6 @@
 version := "0.1"
 
-scalaVersion := "2.10.4"
+scalaVersion := "2.10.5"
 
 name := "multi-project-classpath"
 
@@ -17,7 +17,7 @@ lazy val projA = Project(
   id = "multi-a",
   settings = Seq(
     version := "0.1",
-    scalaVersion := "2.10.4",
+    scalaVersion := "2.10.5",
     name := "multi-a",
     libraryDependencies += "com.databricks" %% "spark-csv" % "1.0.0",
     TaskKey[Unit]("checkClasspath") := {
@@ -32,7 +32,7 @@ lazy val projB = Project(
   dependencies = Seq(projA),
   settings = Seq(
     version := "0.1.1",
-    scalaVersion := "2.10.4",
+    scalaVersion := "2.10.5",
     name := "multi-b",
     libraryDependencies += "com.databricks" %% "spark-avro" % "1.0.0",
     TaskKey[Unit]("checkClasspath") := {
@@ -55,6 +55,7 @@ lazy val projD = Project(
   id = "multi-d",
   settings = Seq(
     libraryDependencies += "com.databricks" %% "spark-csv" % "1.0.0",
+    scalaVersion := "2.10.5",
     dbcClasspath := {
       (managedClasspath in Runtime).value.files
     },

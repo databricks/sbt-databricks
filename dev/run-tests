@@ -2,4 +2,4 @@
 
 THIS_DIR=$(cd "$(dirname "$0")"; pwd)
 
-$THIS_DIR/../sbt/sbt scripted
+$THIS_DIR/../build/sbt scripted
